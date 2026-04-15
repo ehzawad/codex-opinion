@@ -33,24 +33,10 @@ sequenceDiagram
 
 ## Install
 
-Add this repo as a plugin marketplace in your Claude Code settings (`~/.claude/settings.json`):
-
-```json
-{
-  "extraKnownMarketplaces": {
-    "codex-opinion": {
-      "source": {
-        "source": "github",
-        "repo": "ehzawad/codex-opinion"
-      }
-    }
-  }
-}
-```
-
-Then install the plugin:
+Add the marketplace, then install the plugin:
 
 ```bash
+claude plugins marketplace add ehzawad/codex-opinion
 claude plugins install codex-opinion@codex-opinion
 ```
 
