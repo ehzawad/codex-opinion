@@ -15,20 +15,15 @@ import os
 import shutil
 import subprocess
 import sys
-import time
 
 STATE_FILE = "/tmp/codex-opinion-session"
-TTL = 3600  # 1 hour
 
 DEFAULT_INSTRUCTION = "Analyze the following and share your assessment."
 
 
 def load_session():
-    """Load stored session ID if recent enough."""
+    """Load stored session ID."""
     try:
-        age = time.time() - os.path.getmtime(STATE_FILE)
-        if age >= TTL:
-            return None
         with open(STATE_FILE) as f:
             return f.read().strip() or None
     except OSError:

@@ -5,17 +5,11 @@ description: Pipe your plan or diff to Codex for a second opinion. Invoke with /
 
 # Codex Second Opinion
 
-Get a second opinion from OpenAI Codex on your current work. Codex runs at full capability — it can read the codebase, run commands, and do deep analysis.
-
-## Execution rules (for Claude, not Codex)
-
-1. Run the Bash call in the **foreground** (not run_in_background) so you can read stdout.
-2. Set Bash timeout to **600000** (10 min). Codex may run commands, spawn subagents, or do heavy analysis — let it finish.
-3. Construct context and pipe it in **one** Bash call.
+Get a second opinion from OpenAI Codex on your current work. Codex runs at full capability.
 
 ## How to call
 
-Always use `echo` or command substitution to build context, then pipe to the script in ONE foreground Bash call.
+Run the script in the **foreground** so you can read stdout. Pipe context in one Bash call.
 
 If there are uncommitted changes:
 
@@ -37,7 +31,7 @@ echo "<gathered context>" | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/s
 
 **Never pipe an empty string.** If `git diff HEAD` would be empty, use echo with gathered context instead.
 
-The script auto-resumes Codex's exact prior session by stored session ID for continuity across calls.
+The script auto-resumes Codex's exact prior session by stored session ID.
 
 ## After Codex responds
 

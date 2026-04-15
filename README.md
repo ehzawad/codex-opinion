@@ -65,7 +65,7 @@ Reports what Codex found
 ```
 
 - First call starts a fresh Codex session (captures session ID via `--json`)
-- Follow-up calls resume that exact session by ID (1-hour TTL)
+- Follow-up calls resume that exact session by ID
 - Codex runs with full permissions for thorough analysis
 
 ## License
