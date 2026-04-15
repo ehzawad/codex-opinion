@@ -1,36 +1,46 @@
+---
+name: codex-opinion
+description: Pipe your plan or diff to Codex for a read-only second opinion. Invoke manually with /codex-opinion.
+---
+
 # Codex Second Opinion
 
 Get a second opinion from OpenAI Codex on your current work.
 
+## CRITICAL: Execution rules
+
+1. **FOREGROUND ONLY.** Do NOT use run_in_background. You must read stdout directly.
+2. **No timeout.** Let Codex finish — it can take minutes.
+3. **One Bash call per invocation.** Construct context and pipe it in a single command.
+
 ## How to call
 
-IMPORTANT: Always run the script as a **foreground** Bash command. Never run it in the background — you need to read stdout directly.
+Always use `echo` or command substitution to build context, then pipe to the script in ONE foreground Bash call.
 
-Default (pipe a diff):
+If there are uncommitted changes:
 
 ```bash
 git diff HEAD | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py
 ```
 
-Pipe any context (a plan, code snippet, question):
+If the tree is clean or the user wants a general review, gather context yourself and pipe it:
 
 ```bash
-echo "<your context here>" | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py
+echo "Review this codebase for issues. Key files: ..." | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py
 ```
 
-With a custom instruction:
+With a custom instruction (from user text after `/codex-opinion`):
 
 ```bash
-echo "<your context here>" | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py "focus on security implications"
+echo "<gathered context>" | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py "user's custom instruction here"
 ```
 
-If the user passes extra text after `/codex-opinion`, use it as the custom instruction argument.
+**Never pipe an empty string.** If `git diff HEAD` would be empty, use echo with gathered context instead.
 
-The script auto-resumes Codex's prior session so it maintains context across calls within the conversation.
+The script auto-resumes Codex's prior session so it maintains context across calls.
 
 ## Rules
 
-- Run the script in the **foreground**. Read stdout directly. No timeout — let Codex finish.
 - **Max 2 calls** to the script per prompt.
 - **Skip trivial changes** — typos, formatting, single-line fixes don't need a second opinion.
 - **Fix what Codex catches** before responding to the user.

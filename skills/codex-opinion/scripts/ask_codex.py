@@ -92,12 +92,12 @@ def main():
         return
 
     if sys.stdin.isatty():
-        print("No input provided. Pipe content to stdin.")
+        print("No input piped. Usage: echo 'context' | python3 ask_codex.py")
         return
 
     stdin_content = sys.stdin.read().strip()
     if not stdin_content:
-        print("No input provided.")
+        print("Empty input — nothing to analyze. If git diff is empty, pipe project context instead.")
         return
 
     instruction = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else DEFAULT_INSTRUCTION
