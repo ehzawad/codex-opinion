@@ -39,13 +39,13 @@ chmod +x ~/.claude/skills/codex-opinion/scripts/ask_codex.py
 In any Claude Code session, type `codex-opinion` or invoke the skill:
 
 ```
-codex-opinion
+/codex-opinion
 ```
 
 With a custom instruction:
 
 ```
-codex-opinion focus on security vulnerabilities
+/codex-opinion focus on security vulnerabilities
 ```
 
 Claude will pipe the relevant context to Codex, read the analysis, and report back.
