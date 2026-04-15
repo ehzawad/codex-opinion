@@ -1,0 +1,8 @@
+{
+  "name": "codex-opinion",
+  "version": "0.1.0",
+  "description": "Get a read-only second opinion from OpenAI Codex on your work inside Claude Code.",
+  "author": "ehzawad",
+  "license": "MIT",
+  "keywords": ["codex", "openai", "second-opinion", "code-review"]
+}
