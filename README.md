@@ -27,6 +27,8 @@ claude --plugin-dir ./codex-opinion/plugins/codex-opinion
 
 ## Usage
 
+Explicit:
+
 ```
 /codex-opinion:codex-opinion
 ```
@@ -35,6 +37,13 @@ With a custom instruction:
 
 ```
 /codex-opinion:codex-opinion focus on security vulnerabilities
+```
+
+Claude Code also triggers the skill automatically when you ask for a second opinion in natural language — no slash command needed:
+
+```
+ask codex what it thinks about this diff
+get a second opinion on my changes
 ```
 
 ## How it works

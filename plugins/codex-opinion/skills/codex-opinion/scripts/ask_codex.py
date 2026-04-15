@@ -53,7 +53,9 @@ def _claude_code_pid():
     """Get the PID of the Claude Code process (grandparent of this script).
 
     Process tree: claude (grandparent) -> shell (parent) -> python3 (self).
-    Returns the grandparent PID, or None if detection fails.
+    Falls back to parent PID if grandparent detection fails, and finally
+    to the current PID — always returns an integer so session isolation
+    never degrades to project-wide state.
     """
     try:
         ppid = os.getppid()
@@ -66,7 +68,10 @@ def _claude_code_pid():
             return gppid
     except (ValueError, OSError):
         pass
-    return None
+    # Fallback: use parent PID (the shell), or own PID as last resort.
+    # This ensures we never return None and always get per-process isolation.
+    ppid = os.getppid()
+    return ppid if ppid > 1 else os.getpid()
 
 
 def _is_pid_alive(pid):
@@ -78,12 +83,10 @@ def _is_pid_alive(pid):
         return False
 
 
-def _state_path(claude_pid=None):
+def _state_path(claude_pid):
     """Return the session state file path, scoped by project and Claude session."""
     proj = _project_key()
-    if claude_pid is not None:
-        return os.path.join(STATE_DIR, f"{proj}_{claude_pid}.json")
-    return os.path.join(STATE_DIR, f"{proj}.json")
+    return os.path.join(STATE_DIR, f"{proj}_{claude_pid}.json")
 
 
 def _cleanup_stale(project_key):
