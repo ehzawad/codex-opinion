@@ -1,0 +1,16 @@
+{
+  "name": "codex-opinion",
+  "owner": {
+    "name": "ehzawad"
+  },
+  "metadata": {
+    "description": "Get a second opinion from OpenAI Codex CLI inside Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "codex-opinion",
+      "source": "./plugins/codex-opinion",
+      "description": "Get a second opinion from OpenAI Codex on your work inside Claude Code."
+    }
+  ]
+}
