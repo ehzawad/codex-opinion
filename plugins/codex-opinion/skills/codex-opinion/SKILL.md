@@ -37,6 +37,12 @@ If there are uncommitted changes:
 git diff HEAD | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py
 ```
 
+If there are also **untracked files** that matter, include them:
+
+```bash
+{ git diff HEAD; echo "--- Untracked files ---"; git ls-files --others --exclude-standard | while read f; do echo "=== $f ==="; cat "$f"; done; } | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py
+```
+
 If the tree is clean, gather context yourself:
 
 ```bash

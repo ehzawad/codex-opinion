@@ -10,6 +10,7 @@ Usage:
     echo "explain this" | python3 ask_codex.py "focus on error handling"
 """
 
+import fcntl
 import hashlib
 import json
 import os
@@ -127,8 +128,34 @@ def extract_final_message(jsonl_output):
     return last_message
 
 
+def _lock_path():
+    """Return the per-project lock file path."""
+    return os.path.join(STATE_DIR, f"{_project_key()}.lock")
+
+
 def run_codex(stdin_content, instruction):
     """Run codex exec, resuming the prior project session if one exists."""
+
+    os.makedirs(STATE_DIR, exist_ok=True)
+    lock_fd = open(_lock_path(), "w")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print(
+            "[codex-opinion] Another Codex opinion is already running for this project.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    try:
+        return _run_codex_locked(stdin_content, instruction)
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        lock_fd.close()
+
+
+def _run_codex_locked(stdin_content, instruction):
+    """Inner run, called while holding the per-project lock."""
 
     session_id, meta = load_session()
 

@@ -82,7 +82,7 @@ flowchart TD
 ```mermaid
 graph LR
     subgraph "~/.local/state/codex-opinion/"
-        A["a1b2c3d4e5f6g7h8.json<br/><i>project-A</i>"]
+        A["a1b2c3d4e5f6a7b8.json<br/><i>project-A</i>"]
         B["978c37f23779ed84.json<br/><i>project-B</i>"]
         C["f9e8d7c6b5a4f3e2.json<br/><i>project-C</i>"]
     end
@@ -114,9 +114,13 @@ sequenceDiagram
     Note over S: Returns final message to Claude
 ```
 
+## Security
+
+Codex runs with `--dangerously-bypass-approvals-and-sandbox` — no approval prompts, no filesystem sandbox. This gives Codex full read/write access to your machine so it can thoroughly inspect and analyze the codebase. Do not use this plugin on untrusted repositories or with untrusted input.
+
 ## Configuration
 
-The script uses your Codex CLI defaults — model, reasoning effort, and other settings come from `~/.codex/config.toml`. No model is hardcoded.
+The script uses your Codex CLI defaults — model, reasoning effort, and other settings come from `~/.codex/config.toml`. No model is hardcoded. Sandbox and approval settings are overridden by the plugin (see Security above).
 
 ## License
 
