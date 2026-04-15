@@ -27,8 +27,6 @@ claude --plugin-dir ./codex-opinion/plugins/codex-opinion
 
 ## Usage
 
-Explicit:
-
 ```
 /codex-opinion:codex-opinion
 ```
@@ -69,50 +67,22 @@ sequenceDiagram
 
 ## Session management
 
-Sessions are scoped per **Claude Code session** and per **project**, with continuity across sequential sessions. The script walks up the process tree to find the Claude Code process and uses its PID as part of the session key. This means:
+One Codex session per project, stored at `~/.local/state/codex-opinion/{project-hash}.json`. Follow-up calls resume the prior Codex thread so it builds on its accumulated codebase knowledge — across Claude Code sessions, not just within one.
 
-- **Same Claude Code session**: follow-up calls resume the same Codex thread
-- **New Claude Code session, same project**: adopts the Codex thread from the previous session — Codex keeps its accumulated codebase knowledge
-- **Two concurrent Claude Code sessions**: each gets an independent Codex thread — no interference
-- **Stale Codex sessions**: if the adopted Codex thread has expired server-side, logs a notice and starts fresh
-
-State files are stored at `~/.local/state/codex-opinion/`.
+If the session has expired server-side, the script logs a notice and starts fresh.
 
 ```mermaid
 flowchart TD
-    A[Invoke /codex-opinion:codex-opinion] --> B[Walk process tree<br/>to find Claude Code PID]
-    B --> C[Clean up dead session files<br/>from other closed sessions]
-    C --> D{State file exists for<br/>this project + our PID?}
-    D -- Yes --> E[codex exec resume session_id]
-    D -- No --> F{Dead session file exists<br/>from a previous Claude session?}
-    F -- Yes --> G["Adopt most recent session<br/>(atomic rename)"]
-    G --> E
-    F -- No --> H[codex exec — fresh session]
-    E --> I{Resume succeeded?}
-    I -- Yes --> J[Extract response]
-    I -- No --> K["Log notice to stderr"]
-    K --> L[Clear stale session file]
-    L --> H
-    H --> M[Save session metadata]
-    M --> J
-    J --> N[Return to Claude]
-```
-
-```mermaid
-graph LR
-    subgraph "~/.local/state/codex-opinion/"
-        A["a1b2c3d4e5f6a7b8_39837.json<br/><i>project-A, Claude PID 39837</i>"]
-        B["a1b2c3d4e5f6a7b8_41502.json<br/><i>project-A, Claude PID 41502<br/>(concurrent session)</i>"]
-        C["978c37f23779ed84_39837.json<br/><i>project-B, Claude PID 39837</i>"]
-    end
-
-    subgraph "Session metadata"
-        D["session_id: UUID<br/>project_path: /path/to/repo<br/>claude_pid: 39837<br/>updated_at: ISO timestamp"]
-    end
-
-    A --> D
-    B --> D
-    C --> D
+    A[Invoke /codex-opinion:codex-opinion] --> B{Session file exists<br/>for this project?}
+    B -- Yes --> C[codex exec resume session_id]
+    C --> D{Resume succeeded?}
+    D -- Yes --> E[Extract response]
+    D -- No --> F["Log: session could not be resumed"]
+    F --> G[Start fresh session]
+    B -- No --> G
+    G --> H[Save session metadata]
+    H --> E
+    E --> I[Return to Claude]
 ```
 
 ## JSONL protocol
