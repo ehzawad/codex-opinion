@@ -9,7 +9,10 @@ Get a second opinion from OpenAI Codex on your current work. Codex runs at full 
 
 ## How to call
 
-Run the script in the **foreground** so you can read stdout. Pipe context in one Bash call.
+Pipe context to the script. You can run it **foreground** (Bash) or **background** (Monitor) — pick whichever fits.
+
+- **Foreground**: use when you need Codex's response before proceeding.
+- **Monitor**: use when you want to keep working while Codex analyzes. Claude gets notified when the response arrives.
 
 If there are uncommitted changes:
 
