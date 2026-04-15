@@ -18,7 +18,14 @@ import sys
 
 STATE_FILE = "/tmp/codex-opinion-session"
 
-DEFAULT_INSTRUCTION = "Analyze the following and share your assessment."
+DEFAULT_INSTRUCTION = (
+    "Read the project structure, key files, and architectural decisions. "
+    "Understand the codebase as a developer, reviewer, and system architect. "
+    "Then give a second-opinion review: correctness, bugs, regressions, "
+    "risky assumptions, missing tests, design trade-offs, and anything "
+    "you would flag in a thorough code or architecture review. "
+    "Prioritize actionable findings. If nothing material stands out, say so clearly."
+)
 
 
 def load_session():
