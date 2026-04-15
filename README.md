@@ -1,10 +1,10 @@
 # codex-opinion
 
-A Claude Code plugin that gets a read-only second opinion from OpenAI's Codex CLI on your work.
+A Claude Code plugin that gets a second opinion from OpenAI's Codex CLI on your work.
 
-When you invoke `/codex-opinion`, Claude pipes your diff, plan, or context to `codex exec -s read-only`. Codex analyzes your code but **cannot modify anything** — the read-only sandbox is enforced at the OS level. Claude reads Codex's response, fixes what it catches, and summarizes the findings.
+When you invoke `codex-opinion`, Claude pipes your diff, plan, or context to `codex exec` running at full capability. Codex can read the codebase, run commands, and do deep analysis. Claude reads the response and reports back.
 
-Codex maintains session continuity across calls via `codex exec resume --last`, so follow-up reviews build on prior context.
+Codex maintains session continuity by storing the exact session ID — follow-up calls resume that session so Codex builds on its prior analysis.
 
 ## Prerequisites
 
@@ -25,42 +25,27 @@ Then load it in a session:
 claude --plugin-dir ~/.claude/plugins/local/codex-opinion
 ```
 
-Or add to your project's `.claude/settings.json`:
-
-```json
-{
-  "plugins": ["~/.claude/plugins/local/codex-opinion"]
-}
-```
-
 ### Manual install
 
-Copy the files into your user-level Claude Code config:
-
 ```bash
-# Skill
 mkdir -p ~/.claude/skills/codex-opinion/scripts
 cp skills/codex-opinion/SKILL.md ~/.claude/skills/codex-opinion/
 cp skills/codex-opinion/scripts/ask_codex.py ~/.claude/skills/codex-opinion/scripts/
 chmod +x ~/.claude/skills/codex-opinion/scripts/ask_codex.py
-
-# Command (registers /codex-opinion)
-mkdir -p ~/.claude/commands
-cp commands/codex-opinion.md ~/.claude/commands/
 ```
 
 ## Usage
 
-In any Claude Code session:
+In any Claude Code session, type `codex-opinion` or invoke the skill:
 
 ```
-/codex-opinion
+codex-opinion
 ```
 
 With a custom instruction:
 
 ```
-/codex-opinion focus on security vulnerabilities
+codex-opinion focus on security vulnerabilities
 ```
 
 Claude will pipe the relevant context to Codex, read the analysis, and report back.
@@ -71,17 +56,17 @@ Claude will pipe the relevant context to Codex, read the analysis, and report ba
 User prompt
     │
     ▼
-Claude Code ──pipes diff/plan──▶ ask_codex.py ──▶ codex exec -s read-only
+Claude Code ──pipes diff/plan──▶ ask_codex.py ──▶ codex exec (full capability)
     │                                                      │
     ◀──────────── reads stdout ◀──────────────────────────┘
     │
     ▼
-Fixes issues, summarizes findings
+Reports what Codex found
 ```
 
-- First call starts a fresh Codex session
-- Follow-up calls use `codex exec resume --last` for continuity (1-hour TTL)
-- Codex runs in `read-only` sandbox — it can read your codebase but cannot write, edit, or delete anything
+- First call starts a fresh Codex session (captures session ID via `--json`)
+- Follow-up calls resume that exact session by ID (1-hour TTL)
+- Codex runs with full permissions for thorough analysis
 
 ## License
 

@@ -1,11 +1,11 @@
 ---
 name: codex-opinion
-description: Pipe your plan or diff to Codex for a read-only second opinion. Invoke manually with /codex-opinion.
+description: Pipe your plan or diff to Codex for a second opinion. Invoke with /codex-opinion.
 ---
 
 # Codex Second Opinion
 
-Get a second opinion from OpenAI Codex on your current work.
+Get a second opinion from OpenAI Codex on your current work. Codex runs at full capability — it can read the codebase, run commands, and do deep analysis.
 
 ## Execution rules (for Claude, not Codex)
 
@@ -37,7 +37,7 @@ echo "<gathered context>" | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/s
 
 **Never pipe an empty string.** If `git diff HEAD` would be empty, use echo with gathered context instead.
 
-The script auto-resumes Codex's prior session so it maintains context across calls.
+The script auto-resumes Codex's exact prior session by stored session ID for continuity across calls.
 
 ## After Codex responds
 
