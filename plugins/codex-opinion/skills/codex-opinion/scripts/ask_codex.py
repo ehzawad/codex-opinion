@@ -2,21 +2,26 @@
 """Route a prompt to Codex CLI for a second opinion.
 
 Reads content from stdin, sends it to `codex exec` with full permissions
-and the most capable model. Resumes the exact prior session by stored
-session ID for continuity across calls.
+using your configured Codex model and settings. Resumes the prior session
+per-project for continuity across calls.
 
 Usage:
     git diff HEAD | python3 ask_codex.py
     echo "explain this" | python3 ask_codex.py "focus on error handling"
 """
 
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import time
 
-STATE_FILE = "/tmp/codex-opinion-session"
+STATE_DIR = os.path.join(
+    os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
+    "codex-opinion",
+)
 
 DEFAULT_INSTRUCTION = (
     "Read the project structure, key files, and architectural decisions. "
@@ -29,25 +34,62 @@ DEFAULT_INSTRUCTION = (
 )
 
 
-def load_session():
-    """Load stored session ID."""
+def _project_key():
+    """Derive a stable key for the current project from its git repo root."""
     try:
-        with open(STATE_FILE) as f:
-            return f.read().strip() or None
+        root = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True,
+        ).stdout.strip()
     except OSError:
-        return None
+        root = ""
+    if not root:
+        root = os.getcwd()
+    return hashlib.sha256(root.encode()).hexdigest()[:16]
+
+
+def _state_path():
+    """Return the per-project session state file path."""
+    return os.path.join(STATE_DIR, f"{_project_key()}.json")
+
+
+def load_session():
+    """Load stored session metadata. Returns (session_id, meta_dict) or (None, None)."""
+    path = _state_path()
+    try:
+        with open(path) as f:
+            meta = json.load(f)
+            sid = meta.get("session_id")
+            if sid:
+                return sid, meta
+    except (OSError, json.JSONDecodeError, KeyError):
+        pass
+    return None, None
 
 
 def save_session(session_id):
-    """Persist the session ID for future resume calls."""
-    with open(STATE_FILE, "w") as f:
-        f.write(session_id)
+    """Persist session metadata for future resume calls."""
+    os.makedirs(STATE_DIR, exist_ok=True)
+    try:
+        project_path = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+    except OSError:
+        project_path = os.getcwd()
+    meta = {
+        "session_id": session_id,
+        "project_path": project_path or os.getcwd(),
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    with open(_state_path(), "w") as f:
+        json.dump(meta, f, indent=2)
 
 
 def clear_session():
     """Remove stale session state."""
     try:
-        os.remove(STATE_FILE)
+        os.remove(_state_path())
     except OSError:
         pass
 
@@ -86,15 +128,16 @@ def extract_final_message(jsonl_output):
 
 
 def run_codex(stdin_content, instruction):
-    """Run codex exec, resuming the exact prior session if one exists."""
+    """Run codex exec, resuming the prior project session if one exists."""
 
-    session_id = load_session()
+    session_id, meta = load_session()
 
     if session_id:
         full_prompt = f"{instruction}\n\n{stdin_content}"
         cmd = [
             "codex", "exec", "resume", session_id,
             "--dangerously-bypass-approvals-and-sandbox",
+            "--skip-git-repo-check",
             "--json", "-",
         ]
         proc = subprocess.run(
@@ -103,9 +146,18 @@ def run_codex(stdin_content, instruction):
         if proc.returncode == 0:
             msg = extract_final_message(proc.stdout)
             if msg:
-                save_session(session_id)
+                # Always capture the actual thread_id from the response —
+                # codex may have started a new session even on "resume".
+                actual_id = extract_session_id(proc.stdout) or session_id
+                save_session(actual_id)
                 return msg
-        # Resume failed — fall through to fresh session
+        # Resume failed — start fresh and tell the caller
+        created = (meta or {}).get("created_at", "unknown")
+        print(
+            f"[codex-opinion] Session {session_id} (created {created}) "
+            f"could not be resumed — starting fresh.",
+            file=sys.stderr,
+        )
         clear_session()
 
     # Fresh session

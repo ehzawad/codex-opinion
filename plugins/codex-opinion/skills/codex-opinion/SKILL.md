@@ -1,11 +1,11 @@
 ---
 name: codex-opinion
-description: Pipe your plan or diff to Codex for a second opinion. Invoke with /codex-opinion.
+description: Pipe your plan or diff to Codex for a second opinion. Invoke with /codex-opinion:codex-opinion.
 ---
 
 # Codex Second Opinion
 
-Get a second opinion from OpenAI Codex on your current work. Codex runs at full capability.
+Get a second opinion from OpenAI Codex on your current work. Codex uses your configured model and settings.
 
 ## How to call
 
@@ -43,7 +43,7 @@ If the tree is clean, gather context yourself:
 echo "Review this codebase. Key files: ..." | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py
 ```
 
-With a custom instruction (from user text after `/codex-opinion`):
+With a custom instruction (from user text after `/codex-opinion:codex-opinion`):
 
 ```bash
 echo "<context>" | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py "user's instruction"
@@ -51,7 +51,9 @@ echo "<context>" | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/as
 
 **Never pipe an empty string.** If `git diff HEAD` would be empty, use echo with gathered context instead.
 
-The script auto-resumes Codex's exact prior session by stored session ID.
+## Session continuity
+
+The script stores per-project session state in `~/.local/state/codex-opinion/`. Follow-up calls resume the prior Codex session for this project. If resume fails (stale or expired session), the script logs a notice to stderr and starts a fresh session automatically.
 
 ## After Codex responds
 
