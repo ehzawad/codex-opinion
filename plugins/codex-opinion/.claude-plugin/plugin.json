@@ -1,6 +1,6 @@
 {
   "name": "codex-opinion",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Get a second opinion from OpenAI Codex on your work inside Claude Code.",
   "author": {"name": "ehzawad"},
   "license": "MIT",

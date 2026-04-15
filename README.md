@@ -69,41 +69,45 @@ sequenceDiagram
 
 ## Session management
 
-Sessions are scoped per **Claude Code session** and per **project**. The script detects the parent Claude Code process (via grandparent PID) and uses it as part of the session key. This means:
+Sessions are scoped per **Claude Code session** and per **project**, with continuity across sequential sessions. The script walks up the process tree to find the Claude Code process and uses its PID as part of the session key. This means:
 
-- Two Claude Code sessions on the same project get **independent** Codex sessions
-- Follow-up calls within the same Claude Code session **resume** the prior Codex thread
-- When a Claude Code session ends, its state files are cleaned up on the next invocation
+- **Same Claude Code session**: follow-up calls resume the same Codex thread
+- **New Claude Code session, same project**: adopts the Codex thread from the previous session — Codex keeps its accumulated codebase knowledge
+- **Two concurrent Claude Code sessions**: each gets an independent Codex thread — no interference
+- **Stale Codex sessions**: if the adopted Codex thread has expired server-side, logs a notice and starts fresh
 
 State files are stored at `~/.local/state/codex-opinion/`.
 
 ```mermaid
 flowchart TD
-    A[Invoke /codex-opinion:codex-opinion] --> B[Detect Claude Code PID<br/>via grandparent process]
-    B --> C[Clean up state files from<br/>dead Claude Code sessions]
-    C --> D{Session file exists for<br/>this project + Claude PID?}
+    A[Invoke /codex-opinion:codex-opinion] --> B[Walk process tree<br/>to find Claude Code PID]
+    B --> C[Clean up dead session files<br/>from other closed sessions]
+    C --> D{State file exists for<br/>this project + our PID?}
     D -- Yes --> E[codex exec resume session_id]
-    E --> F{Resume succeeded?}
-    F -- Yes --> G[Extract response]
-    F -- No --> H["Log notice to stderr"]
-    H --> I[Clear stale session file]
-    I --> J[codex exec — fresh session]
-    D -- No --> J
-    J --> K[Save session metadata]
-    K --> G
-    G --> L[Return to Claude]
+    D -- No --> F{Dead session file exists<br/>from a previous Claude session?}
+    F -- Yes --> G["Adopt most recent session<br/>(atomic rename)"]
+    G --> E
+    F -- No --> H[codex exec — fresh session]
+    E --> I{Resume succeeded?}
+    I -- Yes --> J[Extract response]
+    I -- No --> K["Log notice to stderr"]
+    K --> L[Clear stale session file]
+    L --> H
+    H --> M[Save session metadata]
+    M --> J
+    J --> N[Return to Claude]
 ```
 
 ```mermaid
 graph LR
     subgraph "~/.local/state/codex-opinion/"
         A["a1b2c3d4e5f6a7b8_39837.json<br/><i>project-A, Claude PID 39837</i>"]
-        B["a1b2c3d4e5f6a7b8_41502.json<br/><i>project-A, Claude PID 41502</i>"]
+        B["a1b2c3d4e5f6a7b8_41502.json<br/><i>project-A, Claude PID 41502<br/>(concurrent session)</i>"]
         C["978c37f23779ed84_39837.json<br/><i>project-B, Claude PID 39837</i>"]
     end
 
     subgraph "Session metadata"
-        D["session_id: UUID<br/>project_path: /path/to/repo<br/>claude_pid: 39837<br/>created_at: ISO timestamp"]
+        D["session_id: UUID<br/>project_path: /path/to/repo<br/>claude_pid: 39837<br/>updated_at: ISO timestamp"]
     end
 
     A --> D

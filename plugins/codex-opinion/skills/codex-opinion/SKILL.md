@@ -59,7 +59,7 @@ echo "<context>" | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/as
 
 ## Session continuity
 
-Sessions are scoped per Claude Code session and per project. Each Claude Code session gets its own Codex thread — separate terminal sessions won't interfere. Follow-up calls within the same session resume the prior Codex thread. If resume fails (stale or expired session), the script logs a notice to stderr and starts fresh. State files from dead Claude Code sessions are cleaned up automatically.
+Sessions are scoped per Claude Code session and per project. Follow-up calls resume the prior Codex thread. When a new Claude Code session starts on the same project, it adopts the Codex thread from the previous session — Codex keeps its accumulated codebase knowledge. Concurrent Claude Code sessions on the same project get independent threads. If an adopted session has expired server-side, the script logs a notice and starts fresh.
 
 ## After Codex responds
 
