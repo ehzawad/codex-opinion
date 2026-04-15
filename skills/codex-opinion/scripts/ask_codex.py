@@ -24,7 +24,8 @@ DEFAULT_INSTRUCTION = (
     "Then give a second-opinion review: correctness, bugs, regressions, "
     "risky assumptions, incomplete assumptions, trade-offs, and anything "
     "you would flag in a thorough code or architecture review. "
-    "Prioritize actionable findings. If nothing material stands out, say so clearly."
+    "Prioritize actionable findings. If nothing material stands out, say so clearly. "
+    "Take full effort, no rush, no panic — just take your time and do the job thoroughly."
 )
 
 
