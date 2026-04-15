@@ -7,11 +7,11 @@ description: Pipe your plan or diff to Codex for a read-only second opinion. Inv
 
 Get a second opinion from OpenAI Codex on your current work.
 
-## CRITICAL: Execution rules
+## Execution rules (for Claude, not Codex)
 
-1. **FOREGROUND ONLY.** Do NOT use run_in_background. You must read stdout directly.
-2. **No timeout.** Let Codex finish — it can take minutes.
-3. **One Bash call per invocation.** Construct context and pipe it in a single command.
+1. Run the Bash call in the **foreground** (not run_in_background) so you can read stdout.
+2. Set Bash timeout to **600000** (10 min). Codex may run commands, spawn subagents, or do heavy analysis — let it finish.
+3. Construct context and pipe it in **one** Bash call.
 
 ## How to call
 
