@@ -2,14 +2,15 @@
 """Route a prompt to Codex CLI for a second opinion.
 
 Reads content from stdin, sends it to `codex exec` with full permissions
-using your configured Codex model and settings. Resumes the prior session
-per-project for continuity across calls.
+using your configured Codex model and settings. Resumes the prior Codex
+session for the current Claude Code session and project.
 
 Usage:
     git diff HEAD | python3 ask_codex.py
     echo "explain this" | python3 ask_codex.py "focus on error handling"
 """
 
+import glob
 import hashlib
 import json
 import os
@@ -48,14 +49,61 @@ def _project_key():
     return hashlib.sha256(root.encode()).hexdigest()[:16]
 
 
-def _state_path():
-    """Return the per-project session state file path."""
-    return os.path.join(STATE_DIR, f"{_project_key()}.json")
+def _claude_code_pid():
+    """Get the PID of the Claude Code process (grandparent of this script).
+
+    Process tree: claude (grandparent) -> shell (parent) -> python3 (self).
+    Returns the grandparent PID, or None if detection fails.
+    """
+    try:
+        ppid = os.getppid()
+        result = subprocess.run(
+            ["ps", "-o", "ppid=", "-p", str(ppid)],
+            capture_output=True, text=True,
+        )
+        gppid = int(result.stdout.strip())
+        if gppid > 1:
+            return gppid
+    except (ValueError, OSError):
+        pass
+    return None
 
 
-def load_session():
+def _is_pid_alive(pid):
+    """Check if a PID corresponds to a running process."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def _state_path(claude_pid=None):
+    """Return the session state file path, scoped by project and Claude session."""
+    proj = _project_key()
+    if claude_pid is not None:
+        return os.path.join(STATE_DIR, f"{proj}_{claude_pid}.json")
+    return os.path.join(STATE_DIR, f"{proj}.json")
+
+
+def _cleanup_stale(project_key):
+    """Remove state files for this project whose Claude Code sessions are dead."""
+    pattern = os.path.join(STATE_DIR, f"{project_key}_*.json")
+    for path in glob.glob(pattern):
+        basename = os.path.basename(path)
+        # Extract PID from filename: {project_key}_{pid}.json
+        try:
+            pid_str = basename[len(project_key) + 1 : -len(".json")]
+            pid = int(pid_str)
+            if not _is_pid_alive(pid):
+                os.remove(path)
+        except (ValueError, OSError):
+            continue
+
+
+def load_session(claude_pid):
     """Load stored session metadata. Returns (session_id, meta_dict) or (None, None)."""
-    path = _state_path()
+    path = _state_path(claude_pid)
     try:
         with open(path) as f:
             meta = json.load(f)
@@ -67,7 +115,7 @@ def load_session():
     return None, None
 
 
-def save_session(session_id):
+def save_session(session_id, claude_pid):
     """Persist session metadata for future resume calls."""
     os.makedirs(STATE_DIR, exist_ok=True)
     try:
@@ -80,16 +128,17 @@ def save_session(session_id):
     meta = {
         "session_id": session_id,
         "project_path": project_path or os.getcwd(),
+        "claude_pid": claude_pid,
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    with open(_state_path(), "w") as f:
+    with open(_state_path(claude_pid), "w") as f:
         json.dump(meta, f, indent=2)
 
 
-def clear_session():
+def clear_session(claude_pid):
     """Remove stale session state."""
     try:
-        os.remove(_state_path())
+        os.remove(_state_path(claude_pid))
     except OSError:
         pass
 
@@ -128,9 +177,14 @@ def extract_final_message(jsonl_output):
 
 
 def run_codex(stdin_content, instruction):
-    """Run codex exec, resuming the prior project session if one exists."""
+    """Run codex exec, resuming the prior session for this Claude Code session."""
 
-    session_id, meta = load_session()
+    claude_pid = _claude_code_pid()
+
+    # Clean up state files from dead Claude Code sessions
+    _cleanup_stale(_project_key())
+
+    session_id, meta = load_session(claude_pid)
 
     if session_id:
         full_prompt = f"{instruction}\n\n{stdin_content}"
@@ -146,10 +200,8 @@ def run_codex(stdin_content, instruction):
         if proc.returncode == 0:
             msg = extract_final_message(proc.stdout)
             if msg:
-                # Always capture the actual thread_id from the response —
-                # codex may have started a new session even on "resume".
                 actual_id = extract_session_id(proc.stdout) or session_id
-                save_session(actual_id)
+                save_session(actual_id, claude_pid)
                 return msg
         # Resume failed — start fresh and tell the caller
         created = (meta or {}).get("created_at", "unknown")
@@ -158,7 +210,7 @@ def run_codex(stdin_content, instruction):
             f"could not be resumed — starting fresh.",
             file=sys.stderr,
         )
-        clear_session()
+        clear_session(claude_pid)
 
     # Fresh session
     full_prompt = f"{instruction}\n\n{stdin_content}"
@@ -180,7 +232,7 @@ def run_codex(stdin_content, instruction):
 
     new_id = extract_session_id(proc.stdout)
     if new_id:
-        save_session(new_id)
+        save_session(new_id, claude_pid)
 
     msg = extract_final_message(proc.stdout)
     return msg

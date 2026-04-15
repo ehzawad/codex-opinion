@@ -60,35 +60,41 @@ sequenceDiagram
 
 ## Session management
 
-Sessions are scoped per-project and stored at `~/.local/state/codex-opinion/`. Each git repo gets its own session file keyed by a hash of the repo root, so switching between projects won't cross-contaminate Codex threads.
+Sessions are scoped per **Claude Code session** and per **project**. The script detects the parent Claude Code process (via grandparent PID) and uses it as part of the session key. This means:
 
-Follow-up calls resume the prior session so Codex builds on its earlier analysis.
+- Two Claude Code sessions on the same project get **independent** Codex sessions
+- Follow-up calls within the same Claude Code session **resume** the prior Codex thread
+- When a Claude Code session ends, its state files are cleaned up on the next invocation
+
+State files are stored at `~/.local/state/codex-opinion/`.
 
 ```mermaid
 flowchart TD
-    A[Invoke /codex-opinion:codex-opinion] --> B{Session file exists<br/>for this project?}
-    B -- Yes --> C[codex exec resume session_id]
-    C --> D{Resume succeeded?}
-    D -- Yes --> E[Extract response]
-    D -- No --> F["Log notice to stderr:<br/>[codex-opinion] Session ... could not be resumed"]
-    F --> G[Clear stale session file]
-    G --> H[codex exec — fresh session]
-    B -- No --> H
-    H --> I[Save session metadata]
-    I --> E
-    E --> J[Return to Claude]
+    A[Invoke /codex-opinion:codex-opinion] --> B[Detect Claude Code PID<br/>via grandparent process]
+    B --> C[Clean up state files from<br/>dead Claude Code sessions]
+    C --> D{Session file exists for<br/>this project + Claude PID?}
+    D -- Yes --> E[codex exec resume session_id]
+    E --> F{Resume succeeded?}
+    F -- Yes --> G[Extract response]
+    F -- No --> H["Log notice to stderr"]
+    H --> I[Clear stale session file]
+    I --> J[codex exec — fresh session]
+    D -- No --> J
+    J --> K[Save session metadata]
+    K --> G
+    G --> L[Return to Claude]
 ```
 
 ```mermaid
 graph LR
     subgraph "~/.local/state/codex-opinion/"
-        A["a1b2c3d4e5f6a7b8.json<br/><i>project-A</i>"]
-        B["978c37f23779ed84.json<br/><i>project-B</i>"]
-        C["f9e8d7c6b5a4f3e2.json<br/><i>project-C</i>"]
+        A["a1b2c3d4e5f6a7b8_39837.json<br/><i>project-A, Claude PID 39837</i>"]
+        B["a1b2c3d4e5f6a7b8_41502.json<br/><i>project-A, Claude PID 41502</i>"]
+        C["978c37f23779ed84_39837.json<br/><i>project-B, Claude PID 39837</i>"]
     end
 
     subgraph "Session metadata"
-        D["session_id: UUID<br/>project_path: /path/to/repo<br/>created_at: ISO timestamp"]
+        D["session_id: UUID<br/>project_path: /path/to/repo<br/>claude_pid: 39837<br/>created_at: ISO timestamp"]
     end
 
     A --> D
