@@ -39,9 +39,6 @@ echo "<gathered context>" | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/s
 
 The script auto-resumes Codex's prior session so it maintains context across calls.
 
-## Rules
+## After Codex responds
 
-- **Max 2 calls** to the script per prompt.
-- **Skip trivial changes** — typos, formatting, single-line fixes don't need a second opinion.
-- **Fix what Codex catches** before responding to the user.
-- **Summarize** what Codex found for the user. Don't dump raw output.
+Tell the user what Codex found.
