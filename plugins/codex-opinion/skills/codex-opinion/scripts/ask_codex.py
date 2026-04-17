@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 STATE_DIR = os.path.join(
@@ -33,9 +34,16 @@ DEFAULT_INSTRUCTION = (
     "Take full effort, no rush, no panic — just take your time and do the job thoroughly."
 )
 
+# Substrings in `codex exec resume` stderr that indicate the stored session
+# can no longer be resumed (stale/expired/missing). On match we start fresh;
+# any other failure is surfaced to the user.
+STALE_RESUME_MARKERS = (
+    "no rollout found",
+)
 
-def _project_key():
-    """Derive a stable key for the current project from its git repo root."""
+
+def _project_root():
+    """Return the git repo root for the current dir, falling back to cwd."""
     try:
         root = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -43,13 +51,16 @@ def _project_key():
         ).stdout.strip()
     except OSError:
         root = ""
-    if not root:
-        root = os.getcwd()
-    return hashlib.sha256(root.encode()).hexdigest()[:16]
+    return root or os.getcwd()
+
+
+def _project_key():
+    """Stable per-project key derived from the git repo root."""
+    return hashlib.sha256(_project_root().encode()).hexdigest()[:16]
 
 
 def _state_path():
-    """Return the per-project session state file path."""
+    """Per-project session state file path."""
     return os.path.join(STATE_DIR, f"{_project_key()}.json")
 
 
@@ -67,22 +78,25 @@ def load_session():
 
 
 def save_session(session_id):
-    """Persist session metadata for future resume calls."""
+    """Persist session metadata atomically (unique tempfile + os.replace)."""
     os.makedirs(STATE_DIR, exist_ok=True)
-    try:
-        project_path = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True,
-        ).stdout.strip()
-    except OSError:
-        project_path = os.getcwd()
     meta = {
         "session_id": session_id,
-        "project_path": project_path or os.getcwd(),
+        "project_path": _project_root(),
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    with open(_state_path(), "w") as f:
-        json.dump(meta, f, indent=2)
+    path = _state_path()
+    fd, tmp_path = tempfile.mkstemp(prefix=".tmp.", dir=STATE_DIR)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(meta, f, indent=2)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def clear_session():
@@ -126,15 +140,23 @@ def extract_final_message(jsonl_output):
     return last_message
 
 
+def _is_stale_resume_error(stderr_text):
+    """Return True if stderr indicates the stored session can't be resumed."""
+    return any(marker in stderr_text for marker in STALE_RESUME_MARKERS)
+
+
 def run_codex(stdin_content, instruction):
     """Run codex exec, resuming the prior session for this project."""
 
+    root = _project_root()
     session_id, meta = load_session()
+    full_prompt = f"{instruction}\n\n{stdin_content}"
 
     if session_id:
-        full_prompt = f"{instruction}\n\n{stdin_content}"
+        # `-C` is a parent option of `codex exec`; placing it after `resume`
+        # is rejected as an unknown argument by the CLI parser.
         cmd = [
-            "codex", "exec", "resume", session_id,
+            "codex", "exec", "-C", root, "resume", session_id,
             "--dangerously-bypass-approvals-and-sandbox",
             "--skip-git-repo-check",
             "--json", "-",
@@ -142,25 +164,41 @@ def run_codex(stdin_content, instruction):
         proc = subprocess.run(
             cmd, input=full_prompt, capture_output=True, text=True,
         )
+        stderr = proc.stderr.strip()
+
         if proc.returncode == 0:
             msg = extract_final_message(proc.stdout)
             if msg:
-                actual_id = extract_session_id(proc.stdout) or session_id
-                save_session(actual_id)
+                save_session(session_id)
                 return msg
-        # Resume failed — start fresh
+            # Clean exit but no agent message — do NOT silently retry,
+            # because the prompt may have non-idempotent side effects.
+            print(
+                "[codex-opinion] Codex exited cleanly but produced no agent message.",
+                file=sys.stderr,
+            )
+            if stderr:
+                print(stderr, file=sys.stderr)
+            sys.exit(1)
+
+        if not _is_stale_resume_error(stderr):
+            # Real failure (auth, network, config, …) — surface and exit.
+            if stderr:
+                print(stderr, file=sys.stderr)
+            print(f"[codex resume exited {proc.returncode}]", file=sys.stderr)
+            sys.exit(1)
+
         updated = (meta or {}).get("updated_at", "unknown")
         print(
-            f"[codex-opinion] Session {session_id} (last used {updated}) "
-            f"could not be resumed — starting fresh.",
+            f"[codex-opinion] Session {session_id} (last used {updated}) is stale "
+            f"({stderr}) — starting fresh.",
             file=sys.stderr,
         )
         clear_session()
 
     # Fresh session
-    full_prompt = f"{instruction}\n\n{stdin_content}"
     cmd = [
-        "codex", "exec",
+        "codex", "exec", "-C", root,
         "--dangerously-bypass-approvals-and-sandbox",
         "--json", "--skip-git-repo-check", "-",
     ]
@@ -197,7 +235,13 @@ def main():
         print("Empty input — pipe project context instead.", file=sys.stderr)
         sys.exit(1)
 
-    instruction = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else DEFAULT_INSTRUCTION
+    # Args augment the default review prompt rather than replacing it.
+    # This keeps the thorough framing in place and lets user text act as
+    # an additional focus directive.
+    focus = " ".join(sys.argv[1:]).strip()
+    instruction = DEFAULT_INSTRUCTION
+    if focus:
+        instruction = f"{DEFAULT_INSTRUCTION}\n\nAdditional user focus: {focus}"
 
     output = run_codex(stdin_content, instruction)
     if output:
