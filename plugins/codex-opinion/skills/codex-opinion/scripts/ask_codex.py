@@ -26,7 +26,7 @@ import tempfile
 import time
 
 STATE_DIR = os.path.join(
-    os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
+    os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
     "codex-opinion",
 )
 
@@ -147,6 +147,20 @@ def _is_stale_resume_error(stderr_text):
     return any(marker in lowered for marker in STALE_RESUME_MARKERS)
 
 
+def _run_codex_proc(cmd, prompt):
+    """Invoke a codex subprocess and capture its output.
+
+    Intentionally has no timeout: codex exec sessions legitimately run for
+    an hour on deep reviews. Real failures surface via non-zero exit or a
+    clean exit with no agent_message, both handled by the caller. Outer
+    harness layers (Claude Code Bash/Monitor timeouts, direct-shell Ctrl+C)
+    bound runaway cases.
+    """
+    return subprocess.run(
+        cmd, input=prompt, capture_output=True, text=True,
+    )
+
+
 def run_codex(prompt):
     """Send `prompt` to codex exec, resuming the prior session if present."""
 
@@ -162,9 +176,7 @@ def run_codex(prompt):
             "--skip-git-repo-check",
             "--json", "-",
         ]
-        proc = subprocess.run(
-            cmd, input=prompt, capture_output=True, text=True,
-        )
+        proc = _run_codex_proc(cmd, prompt)
         stderr = proc.stderr.strip()
 
         if proc.returncode == 0:
@@ -207,22 +219,33 @@ def run_codex(prompt):
         "--dangerously-bypass-approvals-and-sandbox",
         "--json", "--skip-git-repo-check", "-",
     ]
-    proc = subprocess.run(
-        cmd, input=prompt, capture_output=True, text=True,
-    )
+    proc = _run_codex_proc(cmd, prompt)
+    stderr = proc.stderr.strip()
 
     if proc.returncode != 0:
-        stderr = proc.stderr.strip()
         if stderr:
             print(stderr, file=sys.stderr)
         print(f"[codex exited {proc.returncode}]", file=sys.stderr)
         sys.exit(1)
 
+    msg = extract_final_message(proc.stdout)
     new_id = extract_session_id(proc.stdout)
-    if new_id:
+
+    if msg and new_id:
         save_session(new_id)
 
-    return extract_final_message(proc.stdout)
+    if not msg:
+        # Mirror the resume-path diagnostic; do NOT persist a thread that
+        # produced no answer so the next call won't resume it.
+        print(
+            "[codex-opinion] Codex exited cleanly but produced no agent message.",
+            file=sys.stderr,
+        )
+        if stderr:
+            print(stderr, file=sys.stderr)
+        sys.exit(1)
+
+    return msg
 
 
 def main():
@@ -234,8 +257,8 @@ def main():
         print("No input piped. Usage: echo 'prompt' | python3 ask_codex.py", file=sys.stderr)
         sys.exit(1)
 
-    stdin_content = sys.stdin.read().strip()
-    if not stdin_content:
+    stdin_content = sys.stdin.read()
+    if not stdin_content.strip():
         print("Empty input — pipe a complete prompt instead.", file=sys.stderr)
         sys.exit(1)
 
@@ -244,12 +267,7 @@ def main():
     prefix = " ".join(sys.argv[1:]).strip()
     prompt = f"{prefix}\n\n{stdin_content}" if prefix else stdin_content
 
-    output = run_codex(prompt)
-    if output:
-        print(output)
-    else:
-        print("Codex returned no output.", file=sys.stderr)
-        sys.exit(1)
+    print(run_codex(prompt))
 
 
 if __name__ == "__main__":

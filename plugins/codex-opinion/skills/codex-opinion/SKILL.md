@@ -30,7 +30,7 @@ Use when you want to keep working while Codex analyzes. Run the **same command**
 echo "<full prompt>" | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py
 ```
 
-Set Monitor timeout to at least **600** seconds. Codex can take several minutes.
+Set Monitor timeout to at least **600** seconds. Codex can take several minutes. The script itself does not enforce any timeout on Codex — outer layers like Monitor are the cap.
 
 ## Authoring the prompt
 
@@ -144,9 +144,9 @@ When invoking through this skill, **leave it empty** and bake everything into st
 
 One Codex session per project, persisted across Claude Code sessions. Follow-up calls resume the prior Codex thread so it keeps its accumulated codebase knowledge and framing.
 
-If the resume fails with a known stale-session error (the stored thread is missing or expired server-side — matched against a case-insensitive list of markers like `no rollout found`, `thread not found`, `session expired`), the script logs a notice and starts fresh. Any other resume failure — auth, network, config, or a clean exit with no agent message — is surfaced verbatim and the script exits non-zero. It does NOT silently re-run, because the prompt may have non-idempotent side effects under Codex's full filesystem access.
+If the resume fails with a known stale-session error (the stored thread is missing or expired server-side — matched against a case-insensitive list of markers like `no rollout found`, `thread not found`, `session expired`), the script logs a notice and starts fresh. Any other resume failure — auth, network, config, or a clean exit with no agent message — is reported with its stderr (and a short diagnostic for the no-message case), and the script exits non-zero. It does NOT silently re-run, because the prompt may have non-idempotent side effects under Codex's full filesystem access.
 
-Concurrent invocations on the same project are allowed (independent Claude Code sessions can each run an opinion). State writes are atomic, so the JSON file never corrupts. Trade-offs: a parallel first-time call may create a duplicate fresh thread, and rare clear/save races may orphan a thread. Net cost is at most a wasted re-learning round, never lost work.
+Concurrent invocations across different projects are fully isolated — each project keys to its own state file and Codex thread. Concurrent invocations on the same project share a thread once a session exists, so parallel turns can interleave and muddle the review output. State writes are atomic (the JSON file never corrupts); the worst case is a wasted re-learning round or a momentarily confused opinion, never lost work.
 
 ## After Codex responds
 

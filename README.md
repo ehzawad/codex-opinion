@@ -69,9 +69,9 @@ sequenceDiagram
 
 ## Session management
 
-One Codex session per project, stored at `~/.local/state/codex-opinion/{project-hash}.json`. Follow-up calls resume the prior Codex thread so it builds on its accumulated codebase knowledge — across Claude Code sessions, not just within one.
+One Codex session per project, stored at `$XDG_STATE_HOME/codex-opinion/{project-hash}.json` (defaults to `~/.local/state/codex-opinion/...`). Follow-up calls resume the prior Codex thread so it builds on its accumulated codebase knowledge — across Claude Code sessions, not just within one.
 
-Resume failures are handled conservatively. Only known stale-session errors (the stored thread is missing/expired server-side) trigger a fresh restart. Other failures — auth, network, config, or a clean exit with no agent message — are surfaced verbatim and the script exits non-zero. This avoids silently re-running prompts that may have non-idempotent side effects under Codex's full filesystem access.
+Resume failures are handled conservatively. Only known stale-session errors (the stored thread is missing/expired server-side) trigger a fresh restart. Other failures — auth, network, config, or a clean exit with no agent message — are reported with their stderr (and a short diagnostic for the no-message case), and the script exits non-zero. This avoids silently re-running prompts that may have non-idempotent side effects under Codex's full filesystem access.
 
 ```mermaid
 flowchart TD
@@ -88,7 +88,7 @@ flowchart TD
     E --> I[Return to Claude]
 ```
 
-Concurrent invocations on the same project are allowed by design — independent Claude Code sessions can each run an opinion in parallel. State writes are atomic, so the JSON file never corrupts. Trade-off: a parallel first-time call may create a duplicate fresh thread, and rare clear/save races may orphan a thread. Net cost is at most a wasted re-learning round, never lost work.
+Concurrent invocations across *different* projects are fully isolated — each project keys to its own state file and therefore its own Codex thread. Concurrent invocations on the *same* project are allowed by design but share state: writes to the JSON file are atomic (it never corrupts), but once a session exists for that project every caller resumes the same remote Codex thread. Parallel same-project turns can interleave and muddle the review output. Parallel first-time calls on the same project can also create duplicate fresh threads — one wins the save, the others are orphaned. Net cost is a possibly-confused opinion or a wasted re-learning round, never lost code.
 
 ## JSONL protocol
 
@@ -115,6 +115,8 @@ Codex runs with `--dangerously-bypass-approvals-and-sandbox` — no approval pro
 ## Configuration
 
 The script uses your Codex CLI defaults — model, reasoning effort, and other settings come from `~/.codex/config.toml`. No model is hardcoded. Sandbox and approval settings are overridden by the plugin (see Security above).
+
+No subprocess timeout is enforced. Codex sessions legitimately run for an hour on deep reviews, and real failures already surface via non-zero exit or a clean exit with no agent message (both handled). Runaway cases are bounded by outer layers — the Claude Code Bash/Monitor timeouts when invoked through Claude, or Ctrl+C in a direct shell.
 
 ## License
 
