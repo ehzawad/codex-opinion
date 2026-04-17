@@ -31,7 +31,7 @@ claude --plugin-dir ./codex-opinion/plugins/codex-opinion
 /codex-opinion:codex-opinion
 ```
 
-With a focus directive (appended to the default thorough-review prompt — does not replace it):
+Add a directive in the same turn to steer the review:
 
 ```
 /codex-opinion:codex-opinion focus on security vulnerabilities
@@ -46,7 +46,9 @@ get a second opinion on my changes
 
 ## How it works
 
-When invoked, Claude gathers your diff, plan, or context and pipes it to `codex exec`. Codex uses your configured model and settings from `~/.codex/config.toml`, reads the codebase, runs commands, and does deep analysis. Claude reads the response and reports back.
+The script is a pure transport: it pipes whatever Claude Code writes to stdin straight into `codex exec` (or `codex exec resume` when a prior session exists). There is no built-in review prompt inside the script. Claude Code authors the full prompt — framing, focus, and context — on each turn. On the first call for a project, Claude's framing establishes Codex's role; follow-up calls resume the same Codex thread, so Codex remembers the role and Claude only needs to send new context.
+
+Codex uses your configured model and settings from `~/.codex/config.toml`, reads the codebase, runs commands, and does deep analysis. Claude reads the response and reports back.
 
 ```mermaid
 sequenceDiagram
@@ -56,9 +58,9 @@ sequenceDiagram
     participant X as Codex CLI
 
     U->>C: /codex-opinion:codex-opinion
-    C->>C: Gather diff / plan / context
-    C->>S: Pipe context via stdin
-    S->>X: codex exec --json
+    C->>C: Author framing + gather context
+    C->>S: Pipe full prompt via stdin
+    S->>X: codex exec --json (verbatim)
     X-->>S: JSONL events
     S->>S: Extract final message
     S-->>C: Codex's analysis via stdout

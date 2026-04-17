@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
-"""Route a prompt to Codex CLI for a second opinion.
+"""Route a prompt to Codex CLI.
 
-Reads content from stdin, sends it to `codex exec` with full permissions
-using your configured Codex model and settings. Resumes the prior Codex
-session for the current project.
+Pure transport: whatever is piped in on stdin is sent verbatim to
+`codex exec` (or `codex exec resume` when a prior session exists for
+this project). The caller — typically Claude Code via the skill — is
+responsible for constructing a complete, self-framed prompt.
+
+An optional positional argument is prepended to the stdin body with a
+blank-line separator, as a convenience for direct CLI use. Most Claude
+Code invocations should leave it empty and bake any framing into stdin.
 
 Usage:
     git diff HEAD | python3 ask_codex.py
-    echo "explain this" | python3 ask_codex.py "focus on error handling"
+    echo "<full prompt with framing>" | python3 ask_codex.py
+    echo "<context>" | python3 ask_codex.py "Optional prefix line"
 """
 
 import hashlib
@@ -22,16 +28,6 @@ import time
 STATE_DIR = os.path.join(
     os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
     "codex-opinion",
-)
-
-DEFAULT_INSTRUCTION = (
-    "Read the project structure, key files, and architectural decisions. "
-    "Understand the codebase as a developer, reviewer, and system architect. "
-    "Then give a second-opinion review: correctness, bugs, regressions, "
-    "risky assumptions, incomplete assumptions, trade-offs, and anything "
-    "you would flag in a thorough code or architecture review. "
-    "Prioritize actionable findings. If nothing material stands out, say so clearly. "
-    "Take full effort, no rush, no panic — just take your time and do the job thoroughly."
 )
 
 # Lowercased stderr substrings from `codex exec resume` that indicate the
@@ -77,7 +73,7 @@ def load_session():
             sid = meta.get("session_id")
             if sid:
                 return sid, meta
-    except (OSError, json.JSONDecodeError, KeyError):
+    except (OSError, json.JSONDecodeError):
         pass
     return None, None
 
@@ -151,12 +147,11 @@ def _is_stale_resume_error(stderr_text):
     return any(marker in lowered for marker in STALE_RESUME_MARKERS)
 
 
-def run_codex(stdin_content, instruction):
-    """Run codex exec, resuming the prior session for this project."""
+def run_codex(prompt):
+    """Send `prompt` to codex exec, resuming the prior session if present."""
 
     root = _project_root()
     session_id, meta = load_session()
-    full_prompt = f"{instruction}\n\n{stdin_content}"
 
     if session_id:
         # `-C` is a parent option of `codex exec`; placing it after `resume`
@@ -168,7 +163,7 @@ def run_codex(stdin_content, instruction):
             "--json", "-",
         ]
         proc = subprocess.run(
-            cmd, input=full_prompt, capture_output=True, text=True,
+            cmd, input=prompt, capture_output=True, text=True,
         )
         stderr = proc.stderr.strip()
 
@@ -188,7 +183,6 @@ def run_codex(stdin_content, instruction):
             sys.exit(1)
 
         if not _is_stale_resume_error(stderr):
-            # Real failure (auth, network, config, …) — surface and exit.
             if stderr:
                 print(stderr, file=sys.stderr)
             print(f"[codex resume exited {proc.returncode}]", file=sys.stderr)
@@ -201,9 +195,8 @@ def run_codex(stdin_content, instruction):
             file=sys.stderr,
         )
         # Re-check before clearing: a concurrent invocation may have already
-        # replaced the stale ID with a fresh one. Only delete if it's still ours.
-        # Best-effort — there's still a tiny TOCTOU window without flock, but
-        # flock is intentionally rejected in this project.
+        # replaced the stale ID with a fresh one. Best-effort — still a tiny
+        # TOCTOU window without flock, which is intentionally rejected here.
         current_id, _ = load_session()
         if current_id == session_id:
             clear_session()
@@ -215,7 +208,7 @@ def run_codex(stdin_content, instruction):
         "--json", "--skip-git-repo-check", "-",
     ]
     proc = subprocess.run(
-        cmd, input=full_prompt, capture_output=True, text=True,
+        cmd, input=prompt, capture_output=True, text=True,
     )
 
     if proc.returncode != 0:
@@ -229,8 +222,7 @@ def run_codex(stdin_content, instruction):
     if new_id:
         save_session(new_id)
 
-    msg = extract_final_message(proc.stdout)
-    return msg
+    return extract_final_message(proc.stdout)
 
 
 def main():
@@ -239,23 +231,20 @@ def main():
         sys.exit(1)
 
     if sys.stdin.isatty():
-        print("No input piped. Usage: echo 'context' | python3 ask_codex.py", file=sys.stderr)
+        print("No input piped. Usage: echo 'prompt' | python3 ask_codex.py", file=sys.stderr)
         sys.exit(1)
 
     stdin_content = sys.stdin.read().strip()
     if not stdin_content:
-        print("Empty input — pipe project context instead.", file=sys.stderr)
+        print("Empty input — pipe a complete prompt instead.", file=sys.stderr)
         sys.exit(1)
 
-    # Args augment the default review prompt rather than replacing it.
-    # This keeps the thorough framing in place and lets user text act as
-    # an additional focus directive.
-    focus = " ".join(sys.argv[1:]).strip()
-    instruction = DEFAULT_INSTRUCTION
-    if focus:
-        instruction = f"{DEFAULT_INSTRUCTION}\n\nAdditional user focus: {focus}"
+    # Optional positional prefix — prepended to stdin with a blank-line
+    # separator. Usually empty; Claude Code bakes framing into stdin.
+    prefix = " ".join(sys.argv[1:]).strip()
+    prompt = f"{prefix}\n\n{stdin_content}" if prefix else stdin_content
 
-    output = run_codex(stdin_content, instruction)
+    output = run_codex(prompt)
     if output:
         print(output)
     else:
