@@ -31,7 +31,7 @@ claude --plugin-dir ./codex-opinion/plugins/codex-opinion
 /codex-opinion:codex-opinion
 ```
 
-With a custom instruction:
+With a focus directive (appended to the default thorough-review prompt — does not replace it):
 
 ```
 /codex-opinion:codex-opinion focus on security vulnerabilities
@@ -69,21 +69,24 @@ sequenceDiagram
 
 One Codex session per project, stored at `~/.local/state/codex-opinion/{project-hash}.json`. Follow-up calls resume the prior Codex thread so it builds on its accumulated codebase knowledge — across Claude Code sessions, not just within one.
 
-If the session has expired server-side, the script logs a notice and starts fresh.
+Resume failures are handled conservatively. Only known stale-session errors (the stored thread is missing/expired server-side) trigger a fresh restart. Other failures — auth, network, config, or a clean exit with no agent message — are surfaced verbatim and the script exits non-zero. This avoids silently re-running prompts that may have non-idempotent side effects under Codex's full filesystem access.
 
 ```mermaid
 flowchart TD
     A[Invoke /codex-opinion:codex-opinion] --> B{Session file exists<br/>for this project?}
     B -- Yes --> C[codex exec resume session_id]
-    C --> D{Resume succeeded?}
-    D -- Yes --> E[Extract response]
-    D -- No --> F["Log: session could not be resumed"]
+    C --> D{Resume result?}
+    D -- Success + msg --> E[Extract response]
+    D -- Stale-session error --> F["Log notice + start fresh"]
+    D -- Other failure --> X["Surface stderr<br/>exit non-zero"]
     F --> G[Start fresh session]
     B -- No --> G
     G --> H[Save session metadata]
     H --> E
     E --> I[Return to Claude]
 ```
+
+Concurrent invocations on the same project are allowed by design — independent Claude Code sessions can each run an opinion in parallel. State writes are atomic, so the JSON file never corrupts. Trade-off: a parallel first-time call may create a duplicate fresh thread, and rare clear/save races may orphan a thread. Net cost is at most a wasted re-learning round, never lost work.
 
 ## JSONL protocol
 

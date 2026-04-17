@@ -34,11 +34,16 @@ DEFAULT_INSTRUCTION = (
     "Take full effort, no rush, no panic — just take your time and do the job thoroughly."
 )
 
-# Substrings in `codex exec resume` stderr that indicate the stored session
-# can no longer be resumed (stale/expired/missing). On match we start fresh;
-# any other failure is surfaced to the user.
+# Lowercased stderr substrings from `codex exec resume` that indicate the
+# stored session can no longer be resumed (stale/expired/missing). On match
+# we start fresh; any other failure is surfaced verbatim and exits non-zero.
+# Add new variants here as Codex CLI evolves its wording.
 STALE_RESUME_MARKERS = (
     "no rollout found",
+    "thread not found",
+    "session not found",
+    "session expired",
+    "thread expired",
 )
 
 
@@ -142,7 +147,8 @@ def extract_final_message(jsonl_output):
 
 def _is_stale_resume_error(stderr_text):
     """Return True if stderr indicates the stored session can't be resumed."""
-    return any(marker in stderr_text for marker in STALE_RESUME_MARKERS)
+    lowered = stderr_text.lower()
+    return any(marker in lowered for marker in STALE_RESUME_MARKERS)
 
 
 def run_codex(stdin_content, instruction):
@@ -194,7 +200,13 @@ def run_codex(stdin_content, instruction):
             f"({stderr}) — starting fresh.",
             file=sys.stderr,
         )
-        clear_session()
+        # Re-check before clearing: a concurrent invocation may have already
+        # replaced the stale ID with a fresh one. Only delete if it's still ours.
+        # Best-effort — there's still a tiny TOCTOU window without flock, but
+        # flock is intentionally rejected in this project.
+        current_id, _ = load_session()
+        if current_id == session_id:
+            clear_session()
 
     # Fresh session
     cmd = [
