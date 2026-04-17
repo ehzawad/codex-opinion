@@ -78,14 +78,17 @@ flowchart TD
     A[Invoke /codex-opinion:codex-opinion] --> B{Session file exists<br/>for this project?}
     B -- Yes --> C[codex exec resume session_id]
     C --> D{Resume result?}
-    D -- Success + msg --> E[Extract response]
+    D -- Success + msg --> E[Return response]
+    D -- Success, no msg --> X["Diagnostic + exit non-zero"]
     D -- Stale-session error --> F["Log notice + start fresh"]
-    D -- Other failure --> X["Surface stderr<br/>exit non-zero"]
-    F --> G[Start fresh session]
+    D -- Other failure --> X
+    F --> G[codex exec fresh]
     B -- No --> G
-    G --> H[Save session metadata]
-    H --> E
-    E --> I[Return to Claude]
+    G --> H{Fresh result?}
+    H -- Success + msg --> I[Save session metadata]
+    H -- Success, no msg --> X
+    H -- Failure --> X
+    I --> E
 ```
 
 Concurrent invocations across *different* projects are fully isolated — each project keys to its own state file and therefore its own Codex thread. Concurrent invocations on the *same* project are allowed by design but share state: writes to the JSON file are atomic (it never corrupts), but once a session exists for that project every caller resumes the same remote Codex thread. Parallel same-project turns can interleave and muddle the review output. Parallel first-time calls on the same project can also create duplicate fresh threads — one wins the save, the others are orphaned. Net cost is a possibly-confused opinion or a wasted re-learning round, never lost code.
