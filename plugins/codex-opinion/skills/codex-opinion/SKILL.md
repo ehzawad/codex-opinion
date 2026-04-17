@@ -97,9 +97,9 @@ The script will send Codex: the default review prompt + a final line `Additional
 
 One Codex session per project, persisted across Claude Code sessions. Follow-up calls resume the prior Codex thread so it keeps its accumulated codebase knowledge.
 
-If the resume fails because the session is stale (server-side rollout missing), the script logs a notice and starts fresh. Other resume failures (auth, network, config) are surfaced verbatim and the script exits non-zero — it does NOT silently re-run, because the prompt may have non-idempotent side effects.
+If the resume fails with a known stale-session error (the stored thread is missing or expired server-side — matched against a case-insensitive list of markers like `no rollout found`, `thread not found`, `session expired`), the script logs a notice and starts fresh. Any other resume failure — auth, network, config, or a clean exit with no agent message — is surfaced verbatim and the script exits non-zero. It does NOT silently re-run, because the prompt may have non-idempotent side effects under Codex's full filesystem access.
 
-Concurrent invocations on the same project are allowed (independent Claude Code sessions can each run an opinion). The trade-off: a parallel first-time call may create a duplicate fresh thread. State writes are atomic, so the JSON file never corrupts.
+Concurrent invocations on the same project are allowed (independent Claude Code sessions can each run an opinion). State writes are atomic, so the JSON file never corrupts. Trade-offs: a parallel first-time call may create a duplicate fresh thread, and rare clear/save races may orphan a thread. Net cost is at most a wasted re-learning round, never lost work.
 
 ## After Codex responds
 
