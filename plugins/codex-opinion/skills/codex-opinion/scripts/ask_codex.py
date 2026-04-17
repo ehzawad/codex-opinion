@@ -32,7 +32,8 @@ STATE_DIR = os.path.join(
 
 # Lowercased stderr substrings from `codex exec resume` that indicate the
 # stored session can no longer be resumed (stale/expired/missing). On match
-# we start fresh; any other failure is surfaced verbatim and exits non-zero.
+# we start fresh; any other non-zero exit is reported with Codex's stderr
+# plus an exit-code tag, and the script exits non-zero.
 # Add new variants here as Codex CLI evolves its wording.
 STALE_RESUME_MARKERS = (
     "no rollout found",

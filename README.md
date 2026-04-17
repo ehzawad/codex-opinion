@@ -60,7 +60,7 @@ sequenceDiagram
     U->>C: /codex-opinion:codex-opinion
     C->>C: Author framing + gather context
     C->>S: Pipe full prompt via stdin
-    S->>X: codex exec --json (verbatim)
+    S->>X: codex exec --json (stdin passthrough)
     X-->>S: JSONL events
     S->>S: Extract final message
     S-->>C: Codex's analysis via stdout
