@@ -1,6 +1,18 @@
 # codex-opinion
 
-A Claude Code plugin that gets a second opinion from OpenAI's Codex CLI on your work.
+A Claude Code plugin that brings OpenAI's Codex CLI into your work as a distinct second model — not to review after the fact, but to reconcile with Claude on whatever you're doing right now. Three brains in the loop: you, Claude, and Codex.
+
+## Philosophy
+
+The adaptive briefing sits on top of a bedrock that holds regardless of task — invariants for how all three brains (human, Claude, Codex) operate:
+
+- **Don't rot the context window — and don't starve it either** — include every material fact Codex needs to challenge assumptions; cut only procedural fluff. Summary-only briefings are worse than dumps.
+- **Don't panic** — unexpected state isn't an emergency; find root causes.
+- **Don't cheat** — no shortcuts that trade correctness for speed; no suppressing inconvenient findings.
+- **Don't lie** — no unverified claims, no false confidence; uncertainty is honest.
+- **Don't rush** — a thoughtful second opinion beats a fast one.
+- **Don't be sycophantic** — disagreement with evidence is the point, not agreement by default.
+- **Wrong, incomplete, and missing assumptions are where bugs and misalignments come from** — the reconciliation's main job is to surface them across all three brains.
 
 ## Prerequisites
 
@@ -31,24 +43,29 @@ claude --plugin-dir ./codex-opinion/plugins/codex-opinion
 /codex-opinion:codex-opinion
 ```
 
-Add a directive in the same turn to steer the review:
+Add a directive in the same turn to steer the collaboration:
 
 ```
-/codex-opinion:codex-opinion focus on security vulnerabilities
+/codex-opinion:codex-opinion focus on migration risks
+/codex-opinion:codex-opinion sanity-check this plan before I touch code
 ```
 
-Claude Code also triggers the skill automatically when you ask for a second opinion in natural language — no slash command needed:
+Claude Code also triggers the skill automatically when you ask in natural language — no slash command needed:
 
 ```
-ask codex what it thinks about this diff
-get a second opinion on my changes
+ask codex what it thinks
+get a second opinion on this approach
+have codex weigh in
+sanity-check this before I start
+another perspective on the trade-off
+reconcile with codex
 ```
 
 ## How it works
 
-The script is a pure transport: it pipes whatever Claude Code writes to stdin straight into `codex exec` (or `codex exec resume` when a prior session exists). There is no built-in review prompt inside the script. Claude Code authors the full prompt — framing, focus, and context — on each turn. On the first call for a project, Claude's framing establishes Codex's role; follow-up calls resume the same Codex thread, so Codex remembers the role and Claude only needs to send new context.
+The script is a pure transport: it pipes whatever Claude Code writes to stdin straight into `codex exec` (or `codex exec resume` when a prior session exists). There is no built-in prompt, no templates, no auto-bundling. Claude Code composes the full briefing every call — adapted to the current task, current phase, and the recent turns. On the first call per project, Claude's briefing establishes Codex's role; follow-up calls resume the same Codex thread so Codex carries accumulated codebase knowledge. Claude reframes explicitly when the task shifts (debug → plan → design → review) so prior framing doesn't bias later turns.
 
-Codex uses your configured model and settings from `~/.codex/config.toml`, reads the codebase, runs commands, and does deep analysis. Claude reads the response and reports back.
+Codex uses your configured model and settings from `~/.codex/config.toml`, reads the codebase directly, runs commands, and does deep analysis. Claude reconciles Codex's response against its own assessment — agreements, specific disagreements, missed points — and reports the reconciled output to you.
 
 ```mermaid
 sequenceDiagram
@@ -58,13 +75,13 @@ sequenceDiagram
     participant X as Codex CLI
 
     U->>C: /codex-opinion:codex-opinion
-    C->>C: Author framing + gather context
-    C->>S: Pipe full prompt via stdin
+    C->>C: Compose adaptive briefing
+    C->>S: Pipe briefing via stdin
     S->>X: codex exec --json (stdin passthrough)
     X-->>S: JSONL events
     S->>S: Extract final message
     S-->>C: Codex's analysis via stdout
-    C-->>U: Reports findings
+    C-->>U: Reconciles and reports
 ```
 
 ## Session management
@@ -119,7 +136,7 @@ Codex runs with `--dangerously-bypass-approvals-and-sandbox` — no approval pro
 
 The script uses your Codex CLI defaults — model, reasoning effort, and other settings come from `~/.codex/config.toml`. No model is hardcoded. Sandbox and approval settings are overridden by the plugin (see Security above).
 
-No subprocess timeout is enforced. Codex sessions legitimately run for an hour on deep reviews, and real failures already surface via non-zero exit or a clean exit with no agent message (both handled). Runaway cases are bounded by outer layers — the Claude Code Bash/Monitor timeouts when invoked through Claude, or Ctrl+C in a direct shell.
+No subprocess timeout is enforced. Codex sessions legitimately run for an hour on deep analyses, and real failures already surface via non-zero exit or a clean exit with no agent message (both handled). Runaway cases are bounded by outer layers — the Claude Code Bash/Monitor timeouts when invoked through Claude, or Ctrl+C in a direct shell.
 
 ## License
 

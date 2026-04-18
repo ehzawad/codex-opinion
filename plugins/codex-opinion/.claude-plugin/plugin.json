@@ -1,8 +1,8 @@
 {
   "name": "codex-opinion",
-  "version": "1.2.3",
-  "description": "Get a second opinion from OpenAI Codex on your work inside Claude Code.",
+  "version": "1.3.0",
+  "description": "Three-brain collaboration with OpenAI Codex — human, Claude, and Codex reconcile on any task (not just code review).",
   "author": {"name": "ehzawad"},
   "license": "MIT",
-  "keywords": ["codex", "openai", "second-opinion", "code-review"]
+  "keywords": ["codex", "openai", "collaboration", "reconciliation", "second-opinion"]
 }
