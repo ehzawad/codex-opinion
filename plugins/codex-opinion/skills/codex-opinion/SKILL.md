@@ -36,11 +36,13 @@ Pure transport. Whatever you pipe to stdin is exactly what Codex sees — no def
 
 First call per project establishes Codex's role; later calls resume the same thread, so Codex keeps accumulated project knowledge. **Reframe explicitly when the task shifts** (debug → plan → design → review → ...). Prior framing biases later answers if left unchecked. If the thread has drifted beyond what a reframe can steer, delete the state file (details in Session state).
 
-## Composing and reconciling
+## Briefing and reconciliation
 
-Tell Codex the situation, your current read, and the specific question you want answered. Don't dump context blindly, but don't summarize away the evidence Codex needs to disagree with you. When the material is in the current project, prefer pointing Codex at it over pasting bulk content — unless the exact text, error, or diff *is* the evidence. When the task touches uncommitted changes, inline `git diff HEAD` so Codex starts from a shared view of the working state.
+Use this as a lens, not a form — don't mechanically fill headings; include only what's material for this moment, and omit empty parts entirely (no `N/A` padding): objective; the output Codex should produce; your current read, or that you don't have one yet; observed evidence (exact user text, errors, diffs, outputs); negative evidence (hypotheses already ruled out, and why); constraints and prior decisions (don't relitigate); where Codex should look (paths, commands, branch state, failing test names); the exact question; known non-goals (Codex may challenge them if they conflict with the objective).
 
-When Codex replies, reconcile rather than relay. Agreements build confidence; disagreements need verification in code or docs (one of you is wrong); things Codex surfaced that you missed update your model; assumptions Codex made that you know are wrong (e.g., from prior user decisions captured in memory) get corrected, not silently accepted; points where the user needs to decide between your take and Codex's — surface explicitly, don't paper over. Hand the user the reconciled output, not a summary of one brain.
+When the material is in the current project, prefer pointing Codex at paths or commands over pasting bulk content — unless the exact text, error, or diff *is* the evidence. If uncommitted changes are material, inline `git diff HEAD` so Codex starts from a shared view of the working state.
+
+When Codex replies, reconcile rather than relay. Agreements build confidence; disagreements need verification in code, docs, or commands (one of you is wrong). Fold in points Codex surfaced that you missed; correct assumptions Codex made that you know are wrong (e.g., from prior user decisions captured in memory) rather than silently accept them; surface points where the user needs to decide between your take and Codex's, don't paper over. Hand the user the reconciled output, not a summary of one brain.
 
 ## Session state
 
