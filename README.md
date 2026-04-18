@@ -32,10 +32,31 @@ Persists across sessions — no flags needed.
 
 ### For development
 
+Two options depending on how you iterate.
+
+**Per-session try-out** — loads from disk for one session, no persistence:
+
 ```bash
 git clone https://github.com/ehzawad/codex-opinion.git
 claude --plugin-dir ./codex-opinion/plugins/codex-opinion
 ```
+
+**Persistent dev loop** — for authors iterating on the plugin itself, so edits to the working tree are live without the commit/push/`plugins update`/restart cycle:
+
+```bash
+git clone https://github.com/ehzawad/codex-opinion.git
+cd codex-opinion
+claude plugins marketplace add ehzawad/codex-opinion    # skip if already added
+claude plugins install codex-opinion@codex-opinion       # skip if already installed
+./scripts/dev-link.sh
+# restart Claude Code once
+```
+
+`scripts/dev-link.sh` replaces the installed version's cache directory (`~/.claude/plugins/cache/codex-opinion/codex-opinion/<version>/`) with a symlink to your working tree. Symlinks inside the plugin cache are officially supported — they resolve to their target at runtime.
+
+After the one-time restart, edits to `plugins/codex-opinion/**` are live on the next `/codex-opinion:codex-opinion` invocation. **SKILL.md caveat:** the Claude Code harness's skill-content caching behavior is not documented, so `SKILL.md` edits may still require a session restart; the script and the rest of the plugin files update live.
+
+Re-run `./scripts/dev-link.sh` after any `claude plugins update`, any version bump in `plugin.json` (the cache path changes with the version), or any cache wipe — each of these can replace the symlink with a freshly-fetched copy.
 
 ## Usage
 
