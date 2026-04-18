@@ -1,18 +1,6 @@
 # codex-opinion
 
-A Claude Code plugin that brings OpenAI's Codex CLI into your work as a distinct second model — not to review after the fact, but to reconcile with Claude on whatever you're doing right now. Three brains in the loop: you, Claude, and Codex.
-
-## Philosophy
-
-The adaptive briefing sits on top of a bedrock that holds regardless of task — invariants for how all three brains (human, Claude, Codex) operate:
-
-- **Don't rot the context window — and don't starve it either** — include every material fact Codex needs to challenge assumptions; cut only procedural fluff. Summary-only briefings are worse than dumps.
-- **Don't panic** — unexpected state isn't an emergency; find root causes.
-- **Don't cheat** — no shortcuts that trade correctness for speed; no suppressing inconvenient findings.
-- **Don't lie** — no unverified claims, no false confidence; uncertainty is honest.
-- **Don't rush** — a thoughtful second opinion beats a fast one.
-- **Don't be sycophantic** — disagreement with evidence is the point, not agreement by default.
-- **Wrong, incomplete, and missing assumptions are where bugs and misalignments come from** — the reconciliation's main job is to surface them across all three brains.
+A Claude Code plugin that brings OpenAI's Codex CLI into your work as a distinct second model — a collaborator, critic, or reviewer across whatever you're doing right now. Three brains in the loop: you, Claude, and Codex. Install once; invoke from any Claude Code project.
 
 ## Prerequisites
 
@@ -30,7 +18,80 @@ claude plugins install codex-opinion@codex-opinion
 
 Persists across sessions — no flags needed.
 
-### For development
+> Iterating on the plugin itself? See [For development](#for-development) for the author dev loop (symlink + SessionStart hook).
+
+## Usage
+
+```
+/codex-opinion:codex-opinion
+```
+
+Add a directive in the same turn to steer the collaboration:
+
+```
+/codex-opinion:codex-opinion focus on migration risks
+/codex-opinion:codex-opinion sanity-check this plan before I touch code
+```
+
+Claude Code also triggers the skill automatically when you ask in natural language — no slash command needed:
+
+```
+ask codex what it thinks
+get a second opinion on this approach
+have codex weigh in
+sanity-check this before I start
+another perspective on the trade-off
+reconcile with codex
+```
+
+## How it works
+
+The script is a pure transport: it pipes whatever Claude Code writes to stdin straight into `codex exec` (or `codex exec resume` when a prior session exists). There is no built-in prompt, no templates, no auto-bundling. Claude Code composes the full briefing every call — adapted to the current task, phase, and recent turns. On the first call per project, Claude's briefing establishes Codex's role; follow-up calls resume the same Codex thread so Codex carries accumulated project knowledge. Claude reframes explicitly when the task shifts (debug → plan → design → review) so prior framing doesn't bias later turns.
+
+Codex uses your configured model and settings from `~/.codex/config.toml`, reads the current project directly, runs commands, and does deep analysis. Claude reconciles Codex's response against its own assessment — agreements, specific disagreements, missed points — and reports the reconciled output to you.
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant C as Claude Code
+    participant S as ask_codex.py
+    participant X as Codex CLI
+
+    U->>C: /codex-opinion:codex-opinion
+    C->>C: Compose adaptive briefing
+    C->>S: Pipe briefing via stdin
+    S->>X: codex exec --json (stdin passthrough)
+    X-->>S: JSONL events
+    S->>S: Extract final message
+    S-->>C: Codex's analysis via stdout
+    C-->>U: Reconciles and reports
+```
+
+## Philosophy
+
+Every invocation is a three-brain reconciliation: send material context (don't dump, don't summarize away specifics), make uncertainty explicit, and reconcile assumptions across Claude, Codex, and the human. The full invariants — don't rot or starve the context window, don't panic, don't cheat or lie, don't rush, don't be sycophantic, treat wrong/missing/incomplete assumptions as the origin of bugs — are the baked-in floor in [`SKILL.md`](plugins/codex-opinion/skills/codex-opinion/SKILL.md).
+
+## Session management
+
+One Codex session per project, stored at `$XDG_STATE_HOME/codex-opinion/{project-hash}.json` (default `~/.local/state/codex-opinion/...`). Follow-up calls resume the prior Codex thread so it builds on its accumulated project knowledge — across Claude Code sessions, not just within one.
+
+Resume failures are handled conservatively. Only known stale-session errors (the stored thread is missing or expired server-side) trigger a fresh restart. Other failures — auth, network, config, or a clean exit with no agent message — are reported with their stderr and the script exits non-zero. This avoids silently re-running prompts that may have non-idempotent side effects under Codex's full filesystem access.
+
+Concurrent invocations across *different* projects are fully isolated — each project keys to its own state file and therefore its own Codex thread. Concurrent invocations on the *same* project are allowed by design but share state: writes to the JSON file are atomic (it never corrupts), but once a session exists for that project every caller resumes the same remote Codex thread. Parallel same-project turns can interleave and muddle the output. Parallel first-time calls on the same project can also create duplicate fresh threads — one wins the save, the others are orphaned. Net cost is a possibly-confused opinion or a wasted re-learning round, never lost code.
+
+See [DESIGN.md](DESIGN.md) for the session-management flowchart and JSONL protocol diagram.
+
+## Security
+
+Codex runs with `--dangerously-bypass-approvals-and-sandbox` — no approval prompts, no filesystem sandbox. This gives Codex full read/write access to your machine so it can thoroughly inspect and analyze the current project. Do not use this plugin on untrusted projects or with untrusted input.
+
+## Configuration
+
+The script uses your Codex CLI defaults — model, reasoning effort, and other settings come from `~/.codex/config.toml`. No model is hardcoded. Sandbox and approval settings are overridden by the plugin (see Security above).
+
+No subprocess timeout is enforced. Codex sessions legitimately run for an hour on deep analyses, and real failures already surface via non-zero exit or a clean exit with no agent message (both handled). Runaway cases are bounded by outer layers — the Claude Code Bash/Monitor timeouts when invoked through Claude, or Ctrl+C in a direct shell.
+
+## For development
 
 Two options depending on how you iterate.
 
@@ -80,107 +141,6 @@ After the one-time restart, edits to `plugins/codex-opinion/**` are live on the 
 ```
 
 Failures are swallowed (`|| true`) so a missing repo or broken script never blocks session startup. Merge into your existing `hooks.SessionStart` array if you already have one (don't replace it).
-
-## Usage
-
-```
-/codex-opinion:codex-opinion
-```
-
-Add a directive in the same turn to steer the collaboration:
-
-```
-/codex-opinion:codex-opinion focus on migration risks
-/codex-opinion:codex-opinion sanity-check this plan before I touch code
-```
-
-Claude Code also triggers the skill automatically when you ask in natural language — no slash command needed:
-
-```
-ask codex what it thinks
-get a second opinion on this approach
-have codex weigh in
-sanity-check this before I start
-another perspective on the trade-off
-reconcile with codex
-```
-
-## How it works
-
-The script is a pure transport: it pipes whatever Claude Code writes to stdin straight into `codex exec` (or `codex exec resume` when a prior session exists). There is no built-in prompt, no templates, no auto-bundling. Claude Code composes the full briefing every call — adapted to the current task, current phase, and the recent turns. On the first call per project, Claude's briefing establishes Codex's role; follow-up calls resume the same Codex thread so Codex carries accumulated codebase knowledge. Claude reframes explicitly when the task shifts (debug → plan → design → review) so prior framing doesn't bias later turns.
-
-Codex uses your configured model and settings from `~/.codex/config.toml`, reads the codebase directly, runs commands, and does deep analysis. Claude reconciles Codex's response against its own assessment — agreements, specific disagreements, missed points — and reports the reconciled output to you.
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant C as Claude Code
-    participant S as ask_codex.py
-    participant X as Codex CLI
-
-    U->>C: /codex-opinion:codex-opinion
-    C->>C: Compose adaptive briefing
-    C->>S: Pipe briefing via stdin
-    S->>X: codex exec --json (stdin passthrough)
-    X-->>S: JSONL events
-    S->>S: Extract final message
-    S-->>C: Codex's analysis via stdout
-    C-->>U: Reconciles and reports
-```
-
-## Session management
-
-One Codex session per project, stored at `$XDG_STATE_HOME/codex-opinion/{project-hash}.json` (defaults to `~/.local/state/codex-opinion/...`). Follow-up calls resume the prior Codex thread so it builds on its accumulated codebase knowledge — across Claude Code sessions, not just within one.
-
-Resume failures are handled conservatively. Only known stale-session errors (the stored thread is missing/expired server-side) trigger a fresh restart. Other failures — auth, network, config, or a clean exit with no agent message — are reported with their stderr (and a short diagnostic for the no-message case), and the script exits non-zero. This avoids silently re-running prompts that may have non-idempotent side effects under Codex's full filesystem access.
-
-```mermaid
-flowchart TD
-    A[Invoke /codex-opinion:codex-opinion] --> B{Session file exists<br/>for this project?}
-    B -- Yes --> C[codex exec resume session_id]
-    C --> D{Resume result?}
-    D -- Success + msg --> E[Return response]
-    D -- Success, no msg --> X["Diagnostic + exit non-zero"]
-    D -- Stale-session error --> F["Log notice + start fresh"]
-    D -- Other failure --> X
-    F --> G[codex exec fresh]
-    B -- No --> G
-    G --> H{Fresh result?}
-    H -- Success + msg --> I[Save session metadata]
-    H -- Success, no msg --> X
-    H -- Failure --> X
-    I --> E
-```
-
-Concurrent invocations across *different* projects are fully isolated — each project keys to its own state file and therefore its own Codex thread. Concurrent invocations on the *same* project are allowed by design but share state: writes to the JSON file are atomic (it never corrupts), but once a session exists for that project every caller resumes the same remote Codex thread. Parallel same-project turns can interleave and muddle the review output. Parallel first-time calls on the same project can also create duplicate fresh threads — one wins the save, the others are orphaned. Net cost is a possibly-confused opinion or a wasted re-learning round, never lost code.
-
-## JSONL protocol
-
-The script communicates with `codex exec --json` via JSONL events on stdout:
-
-```mermaid
-sequenceDiagram
-    participant S as ask_codex.py
-    participant X as Codex CLI
-
-    X->>S: {"type": "thread.started", "thread_id": "UUID"}
-    Note over S: Captures session ID
-    X->>S: {"type": "turn.started"}
-    X->>S: {"type": "item.completed", "item": {"type": "agent_message", "text": "..."}}
-    Note over S: Captures last agent message
-    X->>S: {"type": "turn.completed", "usage": {...}}
-    Note over S: Returns final message to Claude
-```
-
-## Security
-
-Codex runs with `--dangerously-bypass-approvals-and-sandbox` — no approval prompts, no filesystem sandbox. This gives Codex full read/write access to your machine so it can thoroughly inspect and analyze the codebase. Do not use this plugin on untrusted repositories or with untrusted input.
-
-## Configuration
-
-The script uses your Codex CLI defaults — model, reasoning effort, and other settings come from `~/.codex/config.toml`. No model is hardcoded. Sandbox and approval settings are overridden by the plugin (see Security above).
-
-No subprocess timeout is enforced. Codex sessions legitimately run for an hour on deep analyses, and real failures already surface via non-zero exit or a clean exit with no agent message (both handled). Runaway cases are bounded by outer layers — the Claude Code Bash/Monitor timeouts when invoked through Claude, or Ctrl+C in a direct shell.
 
 ## License
 
