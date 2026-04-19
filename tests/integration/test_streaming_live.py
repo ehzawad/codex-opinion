@@ -122,6 +122,14 @@ class LiveStreamingTests(unittest.TestCase):
                 if line.startswith(">> tool done:"):
                     tool_done_times.append(t)
         finally:
+            try:
+                proc.stdout.close()
+            except OSError:
+                pass
+            try:
+                proc.stderr.close()
+            except OSError:
+                pass
             rc = proc.wait(timeout=180)
         self.assertEqual(rc, 0)
         self.assertGreaterEqual(len(tool_done_times), 3,

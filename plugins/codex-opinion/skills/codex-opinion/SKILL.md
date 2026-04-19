@@ -35,18 +35,22 @@ Codex runs can take minutes to hours. The default invocation makes its progress 
 
 **Default path — Monitor (streams live progress to the human):**
 
-Invoke via Claude Code's `Monitor` tool so compact progress lines (`>> tool: …`, `>> tool done: …`, `>> agent message ready`, `>> turn done: …`) appear as notifications while Codex works. The final `>> final-message: <path>` line names a sidecar file; `Read` that file for Codex's answer after Monitor completes. Session state is managed by the script.
+Invoke via Claude Code's `Monitor` tool so compact progress lines (`>> tool: …`, `>> tool done: …`, `>> agent message ready`, `>> turn done: …`) appear as notifications while Codex works. Errors and stale-session recoveries surface as `>> error: …` / `>> warning: …` lines so the human sees them live too. The final `>> final-message: <path>` line names a sidecar file; `Read` that file for Codex's answer after Monitor completes. Session state is managed by the script.
 
 ```
 Monitor({
-  command:     "bash -lc 'CODEX_OPINION_STREAM=monitor <your briefing> | python3 \"$CLAUDE_PLUGIN_ROOT/skills/codex-opinion/scripts/ask_codex.py\"'",
+  command:     "bash -lc '<your briefing> | CODEX_OPINION_STREAM=monitor python3 \"$CLAUDE_PLUGIN_ROOT/skills/codex-opinion/scripts/ask_codex.py\"'",
   description: "Codex: <short task label>",
   timeout_ms:  3600000,
   persistent:  true,
 })
 ```
 
+The `CODEX_OPINION_STREAM=monitor` env var must be placed on the python3 command (right of the pipe), not on the briefing-producing command on the left — otherwise the env var applies to the wrong process and the script falls through to default (silent) mode.
+
 Progress lines are the progress, not the answer. Reconcile using the final-message file, not any intermediate `>> agent message ready` notification.
+
+Monitor's `timeout_ms` maxes out at 3600000 (1 hour). When Monitor expires, Claude Code terminates the subprocess, which propagates (via `start_new_session=True` + SIGTERM/SIGKILL on the process group) to Codex — Codex dies too; no silent background continuation. The plugin does not own a job scheduler or persistent daemon. For Codex runs expected to exceed an hour, either use the Bash foreground fallback from a standalone terminal session (not recommended for interactive work), or accept the Monitor ceiling and structure briefings so individual turns complete within it.
 
 **Fallback path — Bash foreground (silent until completion):**
 

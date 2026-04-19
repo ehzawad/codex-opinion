@@ -321,6 +321,55 @@ class StreamModeTests(unittest.TestCase):
             self.assertEqual(ask_codex._stream_mode(), "off")
 
 
+class MirrorDiagnosticTests(unittest.TestCase):
+    def _capture_stdout(self, level, message, stream_mode):
+        captured = []
+        with patch.object(ask_codex.sys, "stdout") as mock_stdout:
+            mock_stdout.write = lambda s: captured.append(s) or len(s)
+            mock_stdout.flush = lambda: None
+            ask_codex._mirror_to_monitor(level, message, stream_mode)
+        return "".join(captured)
+
+    def test_off_mode_emits_nothing(self):
+        self.assertEqual(self._capture_stdout("error", "boom", "off"), "")
+
+    def test_monitor_mode_emits_compact_line(self):
+        out = self._capture_stdout("error", "resume failed: thread expired", "monitor")
+        self.assertIn(">> error: resume failed: thread expired", out)
+
+    def test_long_message_is_truncated(self):
+        long = "A" * 500
+        out = self._capture_stdout("warning", long, "monitor")
+        self.assertLessEqual(len(out.rstrip()), len(">> warning: ") + 200 + 1)
+
+    def test_multiline_squashed_to_one_line(self):
+        out = self._capture_stdout("error", "line1\nline2\nline3", "monitor")
+        # Exactly one newline at the end from print(), not from the message.
+        self.assertEqual(out.count("\n"), 1)
+        self.assertIn("line1 line2 line3", out)
+
+
+class ProjectRootCacheTests(unittest.TestCase):
+    def setUp(self):
+        ask_codex._project_root.cache_clear()
+
+    def tearDown(self):
+        ask_codex._project_root.cache_clear()
+
+    def test_only_one_git_call_across_many_lookups(self):
+        calls = {"count": 0}
+
+        def fake_run(*args, **kwargs):
+            calls["count"] += 1
+            from subprocess import CompletedProcess
+            return CompletedProcess(args=args[0], returncode=0, stdout="/fake/root\n", stderr="")
+
+        with patch.object(ask_codex.subprocess, "run", side_effect=fake_run):
+            for _ in range(5):
+                ask_codex._project_root()
+        self.assertEqual(calls["count"], 1, "expected exactly one git rev-parse")
+
+
 class ProgressLineTests(unittest.TestCase):
     def test_thread_started_truncated_id(self):
         line = ask_codex._event_to_progress_line({
