@@ -10,6 +10,10 @@ An optional positional argument is prepended to the stdin body with a
 blank-line separator, as a convenience for direct CLI use. Most Claude
 Code invocations should leave it empty and bake any framing into stdin.
 
+Set CODEX_OPINION_SESSION_KEY in the environment to isolate a session's
+Codex thread from the project-wide thread. Unset or empty falls back to
+the default one-thread-per-project behavior.
+
 Usage:
     echo "<full prompt with framing>" | python3 ask_codex.py
     echo "<context>" | python3 ask_codex.py "Optional prefix line"
@@ -55,9 +59,19 @@ def _project_root():
     return root or os.getcwd()
 
 
+def _session_key():
+    """Optional caller-provided key for isolating Codex state within a project."""
+    return os.environ.get("CODEX_OPINION_SESSION_KEY", "").strip()
+
+
 def _project_key():
-    """Stable per-project key derived from the git repo root."""
-    return hashlib.sha256(_project_root().encode()).hexdigest()[:16]
+    """Stable state key for this project, optionally scoped by session key."""
+    base = hashlib.sha256(_project_root().encode()).hexdigest()[:16]
+    session_key = _session_key()
+    if session_key:
+        suffix = hashlib.sha256(session_key.encode()).hexdigest()[:16]
+        return f"{base}-{suffix}"
+    return base
 
 
 def _state_path():
@@ -86,6 +100,9 @@ def save_session(session_id):
         "project_path": _project_root(),
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
+    session_key = _session_key()
+    if session_key:
+        meta["session_key"] = session_key
     path = _state_path()
     fd, tmp_path = tempfile.mkstemp(prefix=".tmp.", dir=STATE_DIR)
     try:

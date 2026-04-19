@@ -62,7 +62,9 @@ Keep the cycle bounded: initial briefing, audit when the draft adds material new
 
 One Codex thread per project at `$XDG_STATE_HOME/codex-opinion/{hash}.json` (default `~/.local/state/codex-opinion/`). Known stale-session errors (`no rollout found`, `thread not found`, `session expired`, and variants) trigger an automatic fresh start. Other failures — auth, network, config, or a clean exit with no agent message — exit non-zero with diagnostics. The script does not silently re-run; Codex has full filesystem access and prompts may be non-idempotent.
 
-Different projects use different Codex threads. The same project shares one thread; concurrent same-project calls may mix context, so run them one at a time when continuity matters.
+Set `CODEX_OPINION_SESSION_KEY` before launching Claude Code to isolate a session: the state file becomes `{project-hash}-{session-hash}.json` and that session gets its own Codex thread. Unset or empty keeps the project-wide thread.
+
+Different projects use different Codex threads. The same project shares one thread unless `CODEX_OPINION_SESSION_KEY` is set; concurrent same-project calls may mix context, so run them one at a time when continuity matters or isolate each session with a different key.
 
 To delete the state file for this project (start clean), the matching file has a `project_path` field equal to the project root:
 
