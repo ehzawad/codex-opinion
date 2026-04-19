@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Dev-loop helper for codex-opinion plugin authors.
 #
-# Two steps, both idempotent:
+# Three steps, all idempotent:
 #   1. Symlink ~/.claude/plugins/cache/codex-opinion/codex-opinion/<version>/
 #      to this repo's plugins/codex-opinion/ so edits are live at runtime.
 #   2. Rewrite ~/.claude/plugins/installed_plugins.json so the harness's
@@ -9,6 +9,10 @@
 #      step, the harness keeps loading whichever version it originally
 #      registered (typically whatever first `claude plugins install`
 #      recorded), ignoring newer sibling versions that dev-link creates.
+#   3. Prune stale sibling entries in the cache dir for any other
+#      version — real directories from prior `claude plugins install`
+#      or symlinks from prior dev-link runs — so the cache doesn't
+#      accumulate orphaned entries after version bumps.
 #
 # Re-run after any version bump in plugin.json, any `claude plugins update`,
 # or any cache wipe. Restart Claude Code once afterward so the session
@@ -127,5 +131,22 @@ with open(tmp, "w") as f:
 os.replace(tmp, path)
 print("dev-link: installed_plugins.json updated.", file=sys.stderr)
 PYEOF
+
+# --- Step 3: prune stale cache entries for other versions ---
+#
+# Without this, bumping plugin.json creates a new symlink/dir at
+# cache/<new-version>/ but leaves old sibling entries (real dirs from
+# prior `claude plugins install`, symlinks from prior dev-link runs) in
+# place forever. The harness only loads whatever installPath points at,
+# so the oldies are harmless but accumulate over time.
+find "$CACHE_ROOT" -mindepth 1 -maxdepth 1 ! -name "$VERSION" -print0 \
+    | while IFS= read -r -d '' stale; do
+        case "$stale" in
+            "$HOME/.claude/plugins/cache/codex-opinion/codex-opinion/"*)
+                rm -rf "$stale"
+                echo "dev-link: pruned stale cache entry $stale"
+                ;;
+        esac
+    done
 
 echo "dev-link: done. Restart Claude Code so the session rebinds."

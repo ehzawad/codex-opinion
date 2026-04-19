@@ -307,7 +307,7 @@ class RunCodexCommandShapeTests(unittest.TestCase):
 
 
 class ProjectRootCacheTests(unittest.TestCase):
-    """Guard the @lru_cache on _project_root so we don't regress back to
+    """Guard the @cache on _project_root so we don't regress back to
     4-5 git rev-parse calls per invocation."""
 
     def setUp(self):

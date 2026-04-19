@@ -113,10 +113,11 @@ claude plugins install codex-opinion@codex-opinion       # skip if already insta
 # restart Claude Code once
 ```
 
-`scripts/dev-link.sh` does two things:
+`scripts/dev-link.sh` does three things:
 
 1. Creates a symlink at `~/.claude/plugins/cache/codex-opinion/codex-opinion/<version>/` → this repo's working tree, so edits are live at runtime.
 2. Rewrites `~/.claude/plugins/installed_plugins.json` so the harness's `installPath` and `version` fields point at the symlinked version.
+3. Prunes any stale sibling entries in the cache dir for other versions, so bumping `plugin.json` and re-running dev-link doesn't leave old directories or symlinks behind.
 
 Step 2 is load-bearing: the harness loads whichever `installPath` the manifest declares, **not** whichever symlinks exist in the cache. Without the manifest rewrite, bumping the version in `plugin.json` and re-running dev-link creates a new symlink that the harness will happily ignore.
 
