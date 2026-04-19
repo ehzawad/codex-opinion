@@ -246,5 +246,65 @@ class StaleResumeErrorTests(unittest.TestCase):
         self.assertFalse(ask_codex._is_stale_resume_error(""))
 
 
+class _FakeProc:
+    """Minimal subprocess.run-like result for mocking _run_codex_proc."""
+
+    def __init__(self, stdout="", stderr="", returncode=0):
+        self.stdout = stdout
+        self.stderr = stderr
+        self.returncode = returncode
+
+
+def _fresh_jsonl():
+    return (
+        '{"type": "thread.started", "thread_id": "new-sid"}\n'
+        '{"type": "item.completed", "item": {"type": "agent_message", "text": "ok"}}'
+    )
+
+
+def _resume_jsonl():
+    return '{"type": "item.completed", "item": {"type": "agent_message", "text": "resumed"}}'
+
+
+class RunCodexCommandShapeTests(unittest.TestCase):
+    """Guard the `-C` placement foot-gun for `codex exec resume`."""
+
+    def test_resume_places_C_before_resume_keyword(self):
+        captured = {}
+
+        def fake_proc(cmd, prompt):
+            captured["cmd"] = cmd
+            return _FakeProc(stdout=_resume_jsonl())
+
+        with patch.object(ask_codex, "_run_codex_proc", side_effect=fake_proc), \
+             patch.object(ask_codex, "load_session", return_value=("existing-sid", {"updated_at": "t"})), \
+             patch.object(ask_codex, "save_session"):
+            ask_codex.run_codex("hi")
+
+        cmd = captured["cmd"]
+        self.assertIn("-C", cmd)
+        self.assertIn("resume", cmd)
+        self.assertLess(
+            cmd.index("-C"),
+            cmd.index("resume"),
+            f"'-C' must appear before 'resume' in: {cmd}",
+        )
+
+    def test_fresh_call_has_no_resume_keyword(self):
+        captured = {}
+
+        def fake_proc(cmd, prompt):
+            captured["cmd"] = cmd
+            return _FakeProc(stdout=_fresh_jsonl())
+
+        with patch.object(ask_codex, "_run_codex_proc", side_effect=fake_proc), \
+             patch.object(ask_codex, "load_session", return_value=(None, None)), \
+             patch.object(ask_codex, "save_session"):
+            ask_codex.run_codex("hi")
+
+        self.assertNotIn("resume", captured["cmd"])
+        self.assertIn("-C", captured["cmd"])
+
+
 if __name__ == "__main__":
     unittest.main()

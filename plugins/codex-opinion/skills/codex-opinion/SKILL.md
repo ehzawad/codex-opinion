@@ -22,6 +22,7 @@ These principles hold across every invocation regardless of task. Human, Claude,
 - **Never claim findings you didn't verify, successes you didn't observe, or confidence you don't have.** Uncertainty is honest; false certainty corrodes reconciliation.
 - **A thoughtful second opinion beats a fast one.** Codex running long is fine; Codex answering shallowly is not.
 - **Default agreement across human, Claude, and Codex is three parties pretending to be one.** Surface disagreement with evidence, not politeness.
+- **No party has priority.** Human, Claude, and Codex reconcile on facts, evidence, and context — not on whose suggestion it is. Prior user decisions override stylistic defaults; direct observation overrides inferred claims.
 - **Wrong, incomplete, and missing assumptions are the origin of errors and misalignments.** Reconciliation's main job is to surface them — in Claude's briefing, Codex's reply, the user's framing, or prior memory and decisions.
 
 Include a brief marker of this philosophy in your first briefing per project so Codex's framing inherits it. Restate it if any participant drifts (sycophancy creep, hand-wavy certainty, rushed conclusions, unverified claims).
@@ -62,7 +63,7 @@ Keep the cycle bounded: initial briefing, audit when the draft adds material new
 
 One Codex thread per project at `$XDG_STATE_HOME/codex-opinion/{hash}.json` (default `~/.local/state/codex-opinion/`). Known stale-session errors (`no rollout found`, `thread not found`, `session expired`, and variants) trigger an automatic fresh start. Other failures — auth, network, config, or a clean exit with no agent message — exit non-zero with diagnostics. The script does not silently re-run; Codex has full filesystem access and prompts may be non-idempotent.
 
-Set `CODEX_OPINION_SESSION_KEY` before launching Claude Code to isolate a session: the state file becomes `{project-hash}-{session-hash}.json` and that session gets its own Codex thread. Unset or empty keeps the project-wide thread.
+Set `CODEX_OPINION_SESSION_KEY` before launching Claude Code to isolate a session: the state file becomes `{project-hash}-{session-hash}.json` and that session gets its own Codex thread. Unset or empty keeps the project-wide thread. Use a non-secret label (e.g. a branch name or short task ID) — the raw value is written into the state file for debugging.
 
 Different projects use different Codex threads. The same project shares one thread unless `CODEX_OPINION_SESSION_KEY` is set; concurrent same-project calls may mix context, so run them one at a time when continuity matters or isolate each session with a different key.
 

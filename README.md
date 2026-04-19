@@ -1,6 +1,6 @@
 # codex-opinion
 
-A Claude Code plugin that brings OpenAI's Codex CLI into your work as a distinct second model — a collaborator, critic, or reviewer across whatever you're doing right now. You, Claude, and Codex in the loop. Install once; invoke from any Claude Code project.
+A Claude Code plugin that brings OpenAI's Codex CLI into your work as a distinct second model that adapts to whatever you're doing. You, Claude, and Codex in the loop. Install once; invoke from any Claude Code project.
 
 ## Prerequisites
 
@@ -44,7 +44,7 @@ reconcile with codex
 
 ## How it works
 
-The script is a pure transport: it pipes whatever Claude Code writes to stdin straight into `codex exec` (or `codex exec resume` when a prior session exists). There is no built-in prompt, no templates, no auto-bundling. Claude Code composes the full briefing every call — adapted to the current task, phase, and recent turns. On the first call per project, Claude's briefing establishes Codex's role; follow-up calls resume the same Codex thread so Codex carries accumulated project knowledge. Claude reframes explicitly when the task shifts (debug → plan → design → review) so prior framing doesn't bias later turns.
+The script is a pure transport: it pipes whatever Claude Code writes to stdin straight into `codex exec` (or `codex exec resume` when a prior session exists). There is no built-in prompt, no templates, no auto-bundling. Claude Code composes the full briefing every call — adapted to the current task, phase, and recent turns. On the first call per project, Claude's briefing establishes Codex's framing; follow-up calls resume the same Codex thread so Codex carries accumulated project knowledge. Claude reframes explicitly when the task shifts so prior framing doesn't bias later turns.
 
 Codex uses your configured model and settings from `~/.codex/config.toml`, reads the current project directly, runs commands, and does deep analysis. Claude reconciles Codex's response against its own assessment — agreements, specific disagreements, missed points — and reports the reconciled output to you. When Claude's reconciliation adds material new judgment or synthesis, it can ask Codex to audit the draft, and if that audit materially changes the answer, run one closing check on the revision. The protocol stays bounded — briefing, audit when needed, closing check when needed — rather than iterating toward agreement.
 
@@ -75,7 +75,7 @@ One Codex session per project, stored at `$XDG_STATE_HOME/codex-opinion/{project
 
 Resume failures are handled conservatively. Only known stale-session errors (the stored thread is missing or expired server-side) trigger a fresh restart. Other failures — auth, network, config, or a clean exit with no agent message — are reported with their stderr and the script exits non-zero. This avoids silently re-running prompts that may have non-idempotent side effects under Codex's full filesystem access.
 
-Set `CODEX_OPINION_SESSION_KEY` before launching Claude Code to scope state to that session — the state file becomes `{project-hash}-{session-hash}.json` and the session gets its own Codex thread. Unset or empty keeps the default project-wide thread, which preserves accumulated project knowledge across Claude Code sessions.
+Set `CODEX_OPINION_SESSION_KEY` before launching Claude Code to scope state to that session — the state file becomes `{project-hash}-{session-hash}.json` and the session gets its own Codex thread. Unset or empty keeps the default project-wide thread, which preserves accumulated project knowledge across Claude Code sessions. Use a non-secret label (e.g. a branch name or short task ID) — the raw value is written into the state file for debugging.
 
 Concurrent invocations across *different* projects are fully isolated — each project keys to its own state file and therefore its own Codex thread. Concurrent invocations on the *same* project share state by default: writes to the JSON file are atomic (it never corrupts), but every caller resumes the same remote Codex thread. Parallel same-project turns can interleave and muddle the output. Net cost is a possibly-confused opinion or a wasted re-learning round, never lost work. To isolate parallel same-project sessions instead of sharing, give each one a different `CODEX_OPINION_SESSION_KEY`.
 
