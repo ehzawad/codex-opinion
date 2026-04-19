@@ -139,6 +139,50 @@ class LiveStreamingTests(unittest.TestCase):
         self.assertGreater(tool_done_times[-1] - tool_done_times[0], 10,
             "tool-done events look batched; streaming may be broken")
 
+    def test_detach_watch_collect_end_to_end(self):
+        """Detached codex run: kick off, watch to completion, collect final."""
+        # detach: spawn codex detached; capture job-id from stdout
+        rc, stdout, stderr = _run_script(
+            "Respond with exactly: detached",
+            env_overrides={
+                "CODEX_OPINION_SESSION_KEY": self.session_key,
+                "CODEX_OPINION_STREAM": "detach",
+            },
+        )
+        self.assertEqual(rc, 0, stderr)
+        job_id = None
+        for line in stdout.splitlines():
+            if line.startswith(">> job-id: "):
+                job_id = line[len(">> job-id: "):].strip()
+                break
+        self.assertIsNotNone(job_id, f"no job-id line in detach output: {stdout}")
+
+        # watch: tail the job until it completes
+        rc, watch_stdout, watch_stderr = _run_script(
+            "",
+            env_overrides={
+                "CODEX_OPINION_SESSION_KEY": self.session_key,
+                "CODEX_OPINION_STREAM": "watch",
+                "CODEX_OPINION_JOB_ID": job_id,
+            },
+            timeout=180,
+        )
+        self.assertEqual(rc, 0, watch_stderr)
+        self.assertIn(">> final-message:", watch_stdout)
+        self.assertIn(">> turn done:", watch_stdout)
+
+        # collect: print the final answer
+        rc, collect_stdout, collect_stderr = _run_script(
+            "",
+            env_overrides={
+                "CODEX_OPINION_SESSION_KEY": self.session_key,
+                "CODEX_OPINION_STREAM": "collect",
+                "CODEX_OPINION_JOB_ID": job_id,
+            },
+        )
+        self.assertEqual(rc, 0, collect_stderr)
+        self.assertIn("detached", collect_stdout)
+
     def test_stream_mode_sidecar_gc(self):
         """Old sidecars get cleaned up on next invocation."""
         # Compute the sidecar dir, pre-populate with an aged dummy

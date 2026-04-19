@@ -33,9 +33,11 @@ Pure transport. Whatever you pipe to stdin is exactly what Codex sees — no def
 
 Codex runs can take minutes to hours. The default invocation makes its progress visible to the human live; the silent fallback exists only for trivial or debugging calls.
 
-**Default path — Monitor (streams live progress to the human):**
+Three invocation shapes, picked by expected run length:
 
-Invoke via Claude Code's `Monitor` tool so compact progress lines (`>> tool: …`, `>> tool done: …`, `>> agent message ready`, `>> turn done: …`) appear as notifications while Codex works. Errors and stale-session recoveries surface as `>> error: …` / `>> warning: …` lines so the human sees them live too. The final `>> final-message: <path>` line names a sidecar file; `Read` that file for Codex's answer after Monitor completes. Session state is managed by the script.
+**Short runs, in-Monitor (< 1h): `CODEX_OPINION_STREAM=monitor`.**
+
+Synchronous. Claude Code's Monitor tool streams compact progress lines (`>> tool: …`, `>> tool done: …`, `>> agent message ready`, `>> turn done: …`) as notifications while Codex works. Errors and stale-session recoveries surface as `>> error: …` / `>> warning: …`. Final message via sidecar at `$STATE_DIR/lastmsg/{pid}.txt`; `Read` it after Monitor completes.
 
 ```
 Monitor({
@@ -46,15 +48,46 @@ Monitor({
 })
 ```
 
-The `CODEX_OPINION_STREAM=monitor` env var must be placed on the python3 command (right of the pipe), not on the briefing-producing command on the left — otherwise the env var applies to the wrong process and the script falls through to default (silent) mode.
+`CODEX_OPINION_STREAM=monitor` must sit on the python3 command (right of the pipe), not left — otherwise it applies to the briefing-producing command and the script falls through to silent default mode.
 
-Progress lines are the progress, not the answer. Reconcile using the final-message file, not any intermediate `>> agent message ready` notification.
+Monitor's `timeout_ms` caps at 3600000ms (1h); Codex continues running up to that ceiling and dies with the subprocess when Monitor expires. Use the detach shape below for anything that might exceed an hour.
 
-Monitor's `timeout_ms` maxes out at 3600000 (1 hour). When Monitor expires, Claude Code terminates the subprocess, which propagates (via `start_new_session=True` + SIGTERM/SIGKILL on the process group) to Codex — Codex dies too; no silent background continuation. The plugin does not own a job scheduler or persistent daemon. For Codex runs expected to exceed an hour, either use the Bash foreground fallback from a standalone terminal session (not recommended for interactive work), or accept the Monitor ceiling and structure briefings so individual turns complete within it.
+**Long runs (hours to weeks): detach + watch + collect.**
 
-**Fallback path — Bash foreground (silent until completion):**
+The script has no time limit. For runs that may outlive any Claude Code tool invocation, use three calls:
 
-Known-short calls, debugging, or environments without Monitor. Returns the final agent_message on stdout at the end; the human sees nothing during the run.
+1. `CODEX_OPINION_STREAM=detach` spawns Codex fully detached — its own session, stdin/stdout/stderr redirected to files under `$STATE_DIR/jobs/<job-id>/`. The script exits immediately with `>> job-id: <id>`, `>> job-dir: …`, `>> pid: …`, `>> log: …`, `>> sidecar: …`. Codex keeps running after Claude Code's tool call ends; it survives Monitor expiry, Claude Code session close, even laptop sleep if the OS keeps the process alive.
+
+   ```
+   bash -lc '<your briefing> | CODEX_OPINION_STREAM=detach python3 "$CLAUDE_PLUGIN_ROOT/skills/codex-opinion/scripts/ask_codex.py"'
+   ```
+
+   Capture the `>> job-id:` value from stdout and record it in the conversation so you can pass it to `watch` / `collect` later (possibly in a future Claude Code session).
+
+2. `CODEX_OPINION_STREAM=watch` + `CODEX_OPINION_JOB_ID=<id>` tails the job's log and emits compact progress lines. Re-invocable across Monitor expiries — watch runs as a separate process from Codex, so killing watch doesn't affect Codex. When the job ends, watch emits `>> final-message: <path>`.
+
+   ```
+   Monitor({
+     command:     "bash -lc 'CODEX_OPINION_STREAM=watch CODEX_OPINION_JOB_ID=<id> python3 \"$CLAUDE_PLUGIN_ROOT/skills/codex-opinion/scripts/ask_codex.py\"'",
+     description: "Watch Codex job <id>",
+     timeout_ms:  3600000,
+     persistent:  true,
+   })
+   ```
+
+3. `CODEX_OPINION_STREAM=collect` + `CODEX_OPINION_JOB_ID=<id>` prints the job's final agent_message on stdout. Use this once watch has reported `>> final-message:` (or directly, if you're willing to poll).
+
+   ```bash
+   CODEX_OPINION_STREAM=collect CODEX_OPINION_JOB_ID=<id> python3 "$CLAUDE_PLUGIN_ROOT/skills/codex-opinion/scripts/ask_codex.py"
+   ```
+
+Detached jobs do not touch the project's session state — each detach is a fresh Codex thread. For continuity across detached jobs, wrap them with distinct `CODEX_OPINION_SESSION_KEY` values.
+
+Progress lines are the progress, not the answer. Reconcile using the final-message file, never any intermediate `>> agent message ready` notification.
+
+**Shortest path — Bash foreground (silent until completion):**
+
+For known-short calls or debugging where live visibility isn't needed. Returns the final agent_message on stdout; the human sees nothing during the run.
 
 ```bash
 <your briefing> | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py

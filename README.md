@@ -69,15 +69,17 @@ sequenceDiagram
     C-->>U: Reconciles and reports
 ```
 
-## Live progress
+## Live progress and long runs
 
-Codex runs can take minutes to an hour on deep reviews. By default Claude Code invokes the script through its `Monitor` tool with `CODEX_OPINION_STREAM=monitor` set, so compact progress lines (`>> tool: …`, `>> tool done: exit=0 …`, `>> agent message ready`, `>> turn done: …`) appear as notifications in the conversation while Codex is working — no more silence until completion. Errors and stale-session recoveries also surface as `>> error: …` / `>> warning: …` lines. The final message lands in a sidecar file under `$XDG_STATE_HOME/codex-opinion/lastmsg/`; Claude reads it after Monitor completes and uses it for reconciliation.
+The script itself has **no time limit**. Codex runs can take minutes, hours, days, or weeks. Three invocation shapes cover the range, picked via `CODEX_OPINION_STREAM`:
 
-The stream is not the answer. Progress is progress. Use `>> final-message: <path>` as the handoff.
+**`monitor` — synchronous with live progress (< 1h).** Claude Code's Monitor tool streams compact progress lines (`>> tool: …`, `>> tool done: exit=0 …`, `>> agent message ready`, `>> turn done: …`) as notifications while Codex works. Errors and stale-session recoveries surface as `>> error: …` / `>> warning: …`. Final message via sidecar at `$XDG_STATE_HOME/codex-opinion/lastmsg/{pid}.txt`; Claude Reads it after Monitor completes. Runs up to Monitor's 1-hour ceiling; beyond that, use detach.
 
-For short or debugging calls, the silent foreground shape still works — pipe a briefing directly to the script and it returns the final message on stdout as it did pre-1.5.0.
+**`detach` + `watch` + `collect` — asynchronous, no time limit.** For runs that may outlive any Claude Code tool invocation. `detach` spawns Codex fully detached — its own session, stdio redirected to files under `$XDG_STATE_HOME/codex-opinion/jobs/<job-id>/`. The script exits immediately with `>> job-id: <id>` and related paths; Codex keeps running after Claude Code's tool call ends. `watch` (with `CODEX_OPINION_JOB_ID=<id>`) tails the job's log and emits compact progress; re-invocable across Monitor expiries. `collect` (with `CODEX_OPINION_JOB_ID=<id>`) prints the final agent_message when the job completes. Each detached job is a fresh Codex thread; use `CODEX_OPINION_SESSION_KEY` for continuity across detaches.
 
-**Monitor's 1-hour ceiling.** Claude Code's Monitor tool caps `timeout_ms` at 3600000ms. When that expires, the subprocess is terminated; the plugin propagates SIGTERM/SIGKILL through the process group so Codex also exits cleanly — no silent-background continuation. This plugin does not own a job scheduler or persistent daemon. For expected-to-exceed-1-hour runs, structure briefings so individual turns complete within the window, or invoke from a standalone terminal where neither Monitor nor the Bash tool timeouts apply.
+**Default (unset or `off`) — synchronous silent.** Matches the pre-1.5.0 contract. Returns the final agent_message on stdout when Codex finishes; no progress output. Useful for short calls, embedding, and debugging.
+
+The stream is not the answer. Progress is progress. Always use the final-message sidecar (or `collect`'s stdout) as the handoff.
 
 ## Philosophy
 
