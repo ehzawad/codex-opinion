@@ -51,6 +51,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from functools import lru_cache
 
 STATE_DIR = os.path.join(
     os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
@@ -74,8 +75,15 @@ STALE_RESUME_MARKERS = (
 )
 
 
+@lru_cache(maxsize=1)
 def _project_root():
-    """Return the git repo root for the current dir, falling back to cwd."""
+    """Return the git repo root for the current dir, falling back to cwd.
+
+    Cached because the script is one-shot and the result is referenced
+    transitively from _project_key/_state_path/load_session/save_session/
+    _open_log; without caching the sync `git rev-parse` runs 4-5 times per
+    invocation.
+    """
     try:
         root = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -222,6 +230,23 @@ def _is_stale_resume_error(stderr_text):
     return any(marker in lowered for marker in STALE_RESUME_MARKERS)
 
 
+def _mirror_to_monitor(level, message, stream_mode):
+    """Mirror a critical diagnostic to stdout as a `>> level: ...` line.
+
+    Claude Code's Monitor tool only surfaces stdout notifications live;
+    stderr-only diagnostics stay invisible to the human until the
+    subprocess exits. In monitor mode we emit a compact stdout line so
+    stale-session notices, non-zero exits, and missing-agent-message
+    conditions are visible in the conversation as they happen. In
+    non-monitor mode this is a no-op — callers also print the full
+    diagnostic to stderr.
+    """
+    if stream_mode != "monitor":
+        return
+    short = message.strip().replace("\n", " ")[:200]
+    print(f">> {level}: {short}", flush=True)
+
+
 def _event_to_progress_line(event):
     """Translate a JSONL event dict into a compact `>> ...` progress line.
 
@@ -357,7 +382,9 @@ async def _run_codex_stream_async(cmd, prompt, stream_mode="off", log_fh=None):
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         # Own process group so SIGINT/SIGTERM propagation is explicit.
-        preexec_fn=os.setsid,
+        # start_new_session=True is equivalent to preexec_fn=os.setsid
+        # but avoids the fork/async-safety hazards of preexec_fn.
+        start_new_session=True,
     )
 
     stdout_sink = []
@@ -471,10 +498,9 @@ async def run_codex_async(prompt):
                     return _finalize(msg, stream_mode, sidecar_path)
                 # Clean exit but no agent message — do NOT silently retry,
                 # because the prompt may have non-idempotent side effects.
-                print(
-                    "[codex-opinion] Codex exited cleanly but produced no agent message.",
-                    file=sys.stderr,
-                )
+                no_msg = "[codex-opinion] Codex exited cleanly but produced no agent message."
+                print(no_msg, file=sys.stderr)
+                _mirror_to_monitor("error", no_msg, stream_mode)
                 if stderr:
                     print(stderr, file=sys.stderr)
                 sys.exit(1)
@@ -482,15 +508,18 @@ async def run_codex_async(prompt):
             if not _is_stale_resume_error(stderr):
                 if stderr:
                     print(stderr, file=sys.stderr)
-                print(f"[codex resume exited {result.returncode}]", file=sys.stderr)
+                exit_msg = f"[codex resume exited {result.returncode}]"
+                print(exit_msg, file=sys.stderr)
+                _mirror_to_monitor("error", f"resume failed ({result.returncode}): {stderr or 'no stderr'}", stream_mode)
                 sys.exit(1)
 
             updated = (meta or {}).get("updated_at", "unknown")
-            print(
+            stale_msg = (
                 f"[codex-opinion] Session {session_id} (last used {updated}) is stale "
-                f"({stderr}) — starting fresh.",
-                file=sys.stderr,
+                f"({stderr}) — starting fresh."
             )
+            print(stale_msg, file=sys.stderr)
+            _mirror_to_monitor("warning", f"stale session, starting fresh: {session_id}", stream_mode)
             # Re-check before clearing: a concurrent invocation may have already
             # replaced the stale ID with a fresh one. Best-effort — still a tiny
             # TOCTOU window without flock, which is intentionally rejected here.
@@ -512,7 +541,9 @@ async def run_codex_async(prompt):
         if result.returncode != 0:
             if stderr:
                 print(stderr, file=sys.stderr)
-            print(f"[codex exited {result.returncode}]", file=sys.stderr)
+            exit_msg = f"[codex exited {result.returncode}]"
+            print(exit_msg, file=sys.stderr)
+            _mirror_to_monitor("error", f"codex failed ({result.returncode}): {stderr or 'no stderr'}", stream_mode)
             sys.exit(1)
 
         msg = extract_final_message(result.stdout)
@@ -524,10 +555,9 @@ async def run_codex_async(prompt):
         if not msg:
             # Mirror the resume-path diagnostic; do NOT persist a thread that
             # produced no answer so the next call won't resume it.
-            print(
-                "[codex-opinion] Codex exited cleanly but produced no agent message.",
-                file=sys.stderr,
-            )
+            no_msg = "[codex-opinion] Codex exited cleanly but produced no agent message."
+            print(no_msg, file=sys.stderr)
+            _mirror_to_monitor("error", no_msg, stream_mode)
             if stderr:
                 print(stderr, file=sys.stderr)
             sys.exit(1)

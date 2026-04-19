@@ -71,11 +71,13 @@ sequenceDiagram
 
 ## Live progress
 
-Codex runs can take minutes to an hour on deep reviews. By default Claude Code invokes the script through its `Monitor` tool with `CODEX_OPINION_STREAM=monitor` set, so compact progress lines (`>> tool: …`, `>> tool done: exit=0 …`, `>> agent message ready`, `>> turn done: …`) appear as notifications in the conversation while Codex is working — no more silence until completion. The final message lands in a sidecar file under `$XDG_STATE_HOME/codex-opinion/lastmsg/`; Claude reads it after Monitor completes and uses it for reconciliation.
+Codex runs can take minutes to an hour on deep reviews. By default Claude Code invokes the script through its `Monitor` tool with `CODEX_OPINION_STREAM=monitor` set, so compact progress lines (`>> tool: …`, `>> tool done: exit=0 …`, `>> agent message ready`, `>> turn done: …`) appear as notifications in the conversation while Codex is working — no more silence until completion. Errors and stale-session recoveries also surface as `>> error: …` / `>> warning: …` lines. The final message lands in a sidecar file under `$XDG_STATE_HOME/codex-opinion/lastmsg/`; Claude reads it after Monitor completes and uses it for reconciliation.
 
 The stream is not the answer. Progress is progress. Use `>> final-message: <path>` as the handoff.
 
 For short or debugging calls, the silent foreground shape still works — pipe a briefing directly to the script and it returns the final message on stdout as it did pre-1.5.0.
+
+**Monitor's 1-hour ceiling.** Claude Code's Monitor tool caps `timeout_ms` at 3600000ms. When that expires, the subprocess is terminated; the plugin propagates SIGTERM/SIGKILL through the process group so Codex also exits cleanly — no silent-background continuation. This plugin does not own a job scheduler or persistent daemon. For expected-to-exceed-1-hour runs, structure briefings so individual turns complete within the window, or invoke from a standalone terminal where neither Monitor nor the Bash tool timeouts apply.
 
 ## Philosophy
 
