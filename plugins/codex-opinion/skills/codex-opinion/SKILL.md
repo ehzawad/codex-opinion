@@ -27,9 +27,30 @@ These principles hold across every invocation regardless of task. Human, Claude,
 
 Include a brief marker of this philosophy in your first briefing per project so Codex's framing inherits it. Restate it if any participant drifts (sycophancy creep, hand-wavy certainty, rushed conclusions, unverified claims).
 
-## Script
+## Invocation
 
-Pure transport. Whatever you pipe to stdin is exactly what Codex sees — no default framing, no templates. Call it with your composed briefing on stdin:
+Pure transport. Whatever you pipe to stdin is exactly what Codex sees — no default framing, no templates.
+
+Codex runs can take minutes to hours. The default invocation makes its progress visible to the human live; the silent fallback exists only for trivial or debugging calls.
+
+**Default path — Monitor (streams live progress to the human):**
+
+Invoke via Claude Code's `Monitor` tool so compact progress lines (`>> tool: …`, `>> tool done: …`, `>> agent message ready`, `>> turn done: …`) appear as notifications while Codex works. The final `>> final-message: <path>` line names a sidecar file; `Read` that file for Codex's answer after Monitor completes. Session state is managed by the script.
+
+```
+Monitor({
+  command:     "bash -lc 'CODEX_OPINION_STREAM=monitor <your briefing> | python3 \"$CLAUDE_PLUGIN_ROOT/skills/codex-opinion/scripts/ask_codex.py\"'",
+  description: "Codex: <short task label>",
+  timeout_ms:  3600000,
+  persistent:  true,
+})
+```
+
+Progress lines are the progress, not the answer. Reconcile using the final-message file, not any intermediate `>> agent message ready` notification.
+
+**Fallback path — Bash foreground (silent until completion):**
+
+Known-short calls, debugging, or environments without Monitor. Returns the final agent_message on stdout at the end; the human sees nothing during the run.
 
 ```bash
 <your briefing> | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py

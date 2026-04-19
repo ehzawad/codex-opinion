@@ -8,10 +8,12 @@ Run from repo root:
     python3 -m unittest discover -s tests -p 'test_*.py'
 """
 
+import asyncio
 import hashlib
 import os
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -246,15 +248,6 @@ class StaleResumeErrorTests(unittest.TestCase):
         self.assertFalse(ask_codex._is_stale_resume_error(""))
 
 
-class _FakeProc:
-    """Minimal subprocess.run-like result for mocking _run_codex_proc."""
-
-    def __init__(self, stdout="", stderr="", returncode=0):
-        self.stdout = stdout
-        self.stderr = stderr
-        self.returncode = returncode
-
-
 def _fresh_jsonl():
     return (
         '{"type": "thread.started", "thread_id": "new-sid"}\n'
@@ -266,20 +259,24 @@ def _resume_jsonl():
     return '{"type": "item.completed", "item": {"type": "agent_message", "text": "resumed"}}'
 
 
+def _stream_result(stdout="", stderr="", returncode=0):
+    return ask_codex.StreamResult(returncode=returncode, stdout=stdout, stderr=stderr)
+
+
 class RunCodexCommandShapeTests(unittest.TestCase):
     """Guard the `-C` placement foot-gun for `codex exec resume`."""
 
     def test_resume_places_C_before_resume_keyword(self):
         captured = {}
 
-        def fake_proc(cmd, prompt):
+        async def fake_stream(cmd, prompt, **_kwargs):
             captured["cmd"] = cmd
-            return _FakeProc(stdout=_resume_jsonl())
+            return _stream_result(stdout=_resume_jsonl())
 
-        with patch.object(ask_codex, "_run_codex_proc", side_effect=fake_proc), \
+        with patch.object(ask_codex, "_run_codex_stream_async", side_effect=fake_stream), \
              patch.object(ask_codex, "load_session", return_value=("existing-sid", {"updated_at": "t"})), \
              patch.object(ask_codex, "save_session"):
-            ask_codex.run_codex("hi")
+            asyncio.run(ask_codex.run_codex_async("hi"))
 
         cmd = captured["cmd"]
         self.assertIn("-C", cmd)
@@ -293,17 +290,246 @@ class RunCodexCommandShapeTests(unittest.TestCase):
     def test_fresh_call_has_no_resume_keyword(self):
         captured = {}
 
-        def fake_proc(cmd, prompt):
+        async def fake_stream(cmd, prompt, **_kwargs):
             captured["cmd"] = cmd
-            return _FakeProc(stdout=_fresh_jsonl())
+            return _stream_result(stdout=_fresh_jsonl())
 
-        with patch.object(ask_codex, "_run_codex_proc", side_effect=fake_proc), \
+        with patch.object(ask_codex, "_run_codex_stream_async", side_effect=fake_stream), \
              patch.object(ask_codex, "load_session", return_value=(None, None)), \
              patch.object(ask_codex, "save_session"):
-            ask_codex.run_codex("hi")
+            asyncio.run(ask_codex.run_codex_async("hi"))
 
         self.assertNotIn("resume", captured["cmd"])
         self.assertIn("-C", captured["cmd"])
+
+
+class StreamModeTests(unittest.TestCase):
+    def test_off_by_default(self):
+        with patch.dict(os.environ, {k: v for k, v in os.environ.items() if k != "CODEX_OPINION_STREAM"}, clear=True):
+            self.assertEqual(ask_codex._stream_mode(), "off")
+
+    def test_monitor_value(self):
+        with patch.dict(os.environ, {"CODEX_OPINION_STREAM": "monitor"}, clear=False):
+            self.assertEqual(ask_codex._stream_mode(), "monitor")
+
+    def test_monitor_case_insensitive(self):
+        with patch.dict(os.environ, {"CODEX_OPINION_STREAM": "Monitor  "}, clear=False):
+            self.assertEqual(ask_codex._stream_mode(), "monitor")
+
+    def test_unrecognized_values_are_off(self):
+        with patch.dict(os.environ, {"CODEX_OPINION_STREAM": "verbose"}, clear=False):
+            self.assertEqual(ask_codex._stream_mode(), "off")
+
+
+class ProgressLineTests(unittest.TestCase):
+    def test_thread_started_truncated_id(self):
+        line = ask_codex._event_to_progress_line({
+            "type": "thread.started",
+            "thread_id": "019da6a4-55a3-72f1-849c-bdded4782a3b",
+        })
+        self.assertTrue(line.startswith(">> thread:"))
+        self.assertIn("019da6a4", line)
+        self.assertIn("…", line)
+
+    def test_turn_started(self):
+        self.assertEqual(
+            ask_codex._event_to_progress_line({"type": "turn.started"}),
+            ">> turn started",
+        )
+
+    def test_turn_completed_with_usage(self):
+        line = ask_codex._event_to_progress_line({
+            "type": "turn.completed",
+            "usage": {"input_tokens": 100, "cached_input_tokens": 50, "output_tokens": 12},
+        })
+        self.assertEqual(line, ">> turn done: in=100 cached=50 out=12")
+
+    def test_item_started_command_truncates_long_command(self):
+        long_cmd = "/bin/zsh -lc " + ("X" * 200)
+        line = ask_codex._event_to_progress_line({
+            "type": "item.started",
+            "item": {"type": "command_execution", "command": long_cmd},
+        })
+        self.assertTrue(line.startswith(">> tool: "))
+        self.assertTrue(line.endswith("..."))
+        self.assertLessEqual(len(line), len(">> tool: ") + 80)
+
+    def test_item_completed_command(self):
+        line = ask_codex._event_to_progress_line({
+            "type": "item.completed",
+            "item": {"type": "command_execution", "exit_code": 0, "aggregated_output": "hello world"},
+        })
+        self.assertEqual(line, ">> tool done: exit=0 output=11 bytes")
+
+    def test_item_completed_agent_message(self):
+        line = ask_codex._event_to_progress_line({
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": "Hello!"},
+        })
+        self.assertEqual(line, ">> agent message ready (6 chars)")
+
+    def test_unknown_type_returns_none(self):
+        self.assertIsNone(ask_codex._event_to_progress_line({"type": "totally.unknown"}))
+
+
+class GCSidecarTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.sidecar_dir = os.path.join(self.tmp.name, "lastmsg")
+        os.makedirs(self.sidecar_dir, exist_ok=True)
+        self.patcher = patch.object(ask_codex, "SIDECAR_DIR", self.sidecar_dir)
+        self.patcher.start()
+        self.addCleanup(self.patcher.stop)
+
+    def test_removes_old_files_keeps_new(self):
+        old = os.path.join(self.sidecar_dir, "old.txt")
+        new = os.path.join(self.sidecar_dir, "new.txt")
+        with open(old, "w") as f:
+            f.write("old")
+        with open(new, "w") as f:
+            f.write("new")
+        # Backdate old file beyond threshold.
+        past = time.time() - (ask_codex.SIDECAR_MAX_AGE_SECS + 60)
+        os.utime(old, (past, past))
+        ask_codex._gc_old_sidecars()
+        self.assertFalse(os.path.exists(old))
+        self.assertTrue(os.path.exists(new))
+
+    def test_missing_dir_is_noop(self):
+        # Point at a non-existent directory.
+        with patch.object(ask_codex, "SIDECAR_DIR", os.path.join(self.tmp.name, "nope")):
+            ask_codex._gc_old_sidecars()  # must not raise
+
+
+class FinalizeTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.sidecar_dir = os.path.join(self.tmp.name, "lastmsg")
+        self.patcher = patch.object(ask_codex, "SIDECAR_DIR", self.sidecar_dir)
+        self.patcher.start()
+        self.addCleanup(self.patcher.stop)
+
+    def test_default_mode_returns_message(self):
+        result = ask_codex._finalize("the answer", stream_mode="off", sidecar_path=None)
+        self.assertEqual(result, "the answer")
+
+    def test_monitor_mode_writes_sidecar_and_returns_empty(self):
+        import time as _t
+        sidecar = os.path.join(self.sidecar_dir, f"{os.getpid()}-{_t.time()}.txt")
+        captured_stdout = []
+        with patch.object(ask_codex.sys, "stdout") as mock_stdout:
+            mock_stdout.write = lambda s: captured_stdout.append(s) or len(s)
+            mock_stdout.flush = lambda: None
+            result = ask_codex._finalize("monitor answer", stream_mode="monitor", sidecar_path=sidecar)
+        self.assertEqual(result, "")
+        self.assertTrue(os.path.exists(sidecar))
+        with open(sidecar) as f:
+            self.assertEqual(f.read(), "monitor answer")
+        # Sentinel line was printed.
+        joined = "".join(captured_stdout)
+        self.assertIn(">> final-message:", joined)
+        self.assertIn(sidecar, joined)
+
+
+class StreamDriverTests(unittest.TestCase):
+    """_run_codex_stream_async exercised against real python3 subprocesses.
+
+    Rather than mock asyncio's subprocess transport (which requires real
+    file descriptors), these tests invoke tiny python3 programs that
+    emit scripted stdout/stderr, which is exactly what the real driver
+    consumes. Fast (~0.1s each) and exercises real async I/O paths.
+    """
+
+    def _run_with_child(self, child_code, stream_mode="off"):
+        """Spawn `python3 -c child_code` through the async driver."""
+        captured_stdout = []
+        with patch.object(ask_codex.sys, "stdout") as mock_stdout:
+            mock_stdout.write = lambda s: captured_stdout.append(s) or len(s)
+            mock_stdout.flush = lambda: None
+            result = asyncio.run(ask_codex._run_codex_stream_async(
+                [sys.executable, "-c", child_code],
+                "",
+                stream_mode=stream_mode,
+            ))
+        return result, "".join(captured_stdout)
+
+    def test_default_mode_does_not_emit_progress(self):
+        child = (
+            "import sys\n"
+            "for line in [\n"
+            '    \'{"type": "thread.started", "thread_id": "abc"}\',\n'
+            '    \'{"type": "turn.started"}\',\n'
+            '    \'{"type": "item.completed", "item": {"type": "agent_message", "text": "ok"}}\',\n'
+            '    \'{"type": "turn.completed", "usage": {"input_tokens": 1, "cached_input_tokens": 0, "output_tokens": 1}}\',\n'
+            "]:\n"
+            "    print(line, flush=True)\n"
+        )
+        result, stdout_captured = self._run_with_child(child, stream_mode="off")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("thread.started", result.stdout)
+        self.assertIn("agent_message", result.stdout)
+        self.assertNotIn(">>", stdout_captured)
+
+    def test_monitor_mode_emits_compact_progress(self):
+        child = (
+            "import sys\n"
+            "for line in [\n"
+            '    \'{"type": "thread.started", "thread_id": "abcdef0123456789"}\',\n'
+            '    \'{"type": "turn.started"}\',\n'
+            '    \'{"type": "item.started", "item": {"type": "command_execution", "command": "/bin/zsh -lc ls"}}\',\n'
+            '    \'{"type": "item.completed", "item": {"type": "command_execution", "exit_code": 0, "aggregated_output": "a\\\\nb\\\\nc"}}\',\n'
+            '    \'{"type": "item.completed", "item": {"type": "agent_message", "text": "done"}}\',\n'
+            '    \'{"type": "turn.completed", "usage": {"input_tokens": 10, "cached_input_tokens": 2, "output_tokens": 1}}\',\n'
+            "]:\n"
+            "    print(line, flush=True)\n"
+        )
+        result, stdout_captured = self._run_with_child(child, stream_mode="monitor")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(">> thread: abcdef01", stdout_captured)
+        self.assertIn(">> turn started", stdout_captured)
+        self.assertIn(">> tool: /bin/zsh -lc ls", stdout_captured)
+        self.assertIn(">> tool done: exit=0 output=5 bytes", stdout_captured)
+        self.assertIn(">> agent message ready (4 chars)", stdout_captured)
+        self.assertIn(">> turn done: in=10 cached=2 out=1", stdout_captured)
+
+    def test_malformed_json_line_skipped_not_raised(self):
+        child = (
+            "import sys\n"
+            "print('not json', flush=True)\n"
+            '''print('{"type": "item.completed", "item": {"type": "agent_message", "text": "done"}}', flush=True)\n'''
+        )
+        result, stdout_captured = self._run_with_child(child, stream_mode="monitor")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(">> agent message ready (4 chars)", stdout_captured)
+
+    def test_nonzero_returncode_surfaced(self):
+        child = (
+            "import sys\n"
+            "sys.stderr.write('boom\\n')\n"
+            "sys.stderr.flush()\n"
+            "sys.exit(1)\n"
+        )
+        result, _ = self._run_with_child(child, stream_mode="off")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("boom", result.stderr)
+
+    def test_concurrent_stdout_stderr_do_not_deadlock(self):
+        """Heavy stderr alongside stdout should not hang."""
+        child = (
+            "import sys\n"
+            "for i in range(200):\n"
+            "    sys.stderr.write('E' * 200 + '\\n')\n"
+            "    sys.stderr.flush()\n"
+            "for i in range(5):\n"
+            '    print(\'{"type":"turn.started"}\', flush=True)\n'
+        )
+        result, stdout_captured = self._run_with_child(child, stream_mode="monitor")
+        self.assertEqual(result.returncode, 0)
+        # Five turn.started events should each produce a progress line.
+        self.assertEqual(stdout_captured.count(">> turn started"), 5)
+        self.assertGreater(len(result.stderr), 1000)
 
 
 if __name__ == "__main__":
