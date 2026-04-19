@@ -53,8 +53,8 @@ $STATE_DIR/logs/{project-hash}-{timestamp}.jsonl for debugging.
 
 Usage:
     echo "<prompt>" | python3 ask_codex.py
-    CODEX_OPINION_STREAM=monitor echo "<prompt>" | python3 ask_codex.py
-    echo "<prompt>" | CODEX_OPINION_STREAM=detach python3 ask_codex.py
+    echo "<prompt>" | CODEX_OPINION_STREAM=monitor python3 ask_codex.py
+    echo "<prompt>" | CODEX_OPINION_STREAM=detach  python3 ask_codex.py
     CODEX_OPINION_STREAM=watch   CODEX_OPINION_JOB_ID=<id> python3 ask_codex.py
     CODEX_OPINION_STREAM=collect CODEX_OPINION_JOB_ID=<id> python3 ask_codex.py
 """

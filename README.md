@@ -48,6 +48,8 @@ The script is a pure transport with an asyncio event-loop driver: it pipes whate
 
 Codex uses your configured model and settings from `~/.codex/config.toml`, reads the current project directly, runs commands, and does deep analysis. Claude reconciles Codex's response against its own assessment — agreements, specific disagreements, missed points — and reports the reconciled output to you. When Claude's reconciliation adds material new judgment or synthesis, it can ask Codex to audit the draft, and if that audit materially changes the answer, run one closing check on the revision. The protocol stays bounded — briefing, audit when needed, closing check when needed — rather than iterating toward agreement.
 
+The diagram below shows the **`monitor`-mode** flow (synchronous, live progress, final message via sidecar). The alternate long-run path — `detach` + `watch` + `collect` — is covered textually in *Live progress and long runs* below; its shape is similar but the script exits immediately after spawning Codex and separate `watch` / `collect` invocations read the job's log and sidecar.
+
 ```mermaid
 sequenceDiagram
     participant U as User
@@ -75,7 +77,7 @@ The script itself has **no time limit**. Codex runs can take minutes, hours, day
 
 **`monitor` — synchronous with live progress (< 1h).** Claude Code's Monitor tool streams compact progress lines (`>> tool: …`, `>> tool done: exit=0 …`, `>> agent message ready`, `>> turn done: …`) as notifications while Codex works. Errors and stale-session recoveries surface as `>> error: …` / `>> warning: …`. Final message via sidecar at `$XDG_STATE_HOME/codex-opinion/lastmsg/{pid}.txt`; Claude Reads it after Monitor completes. Runs up to Monitor's 1-hour ceiling; beyond that, use detach.
 
-**`detach` + `watch` + `collect` — asynchronous, no time limit.** For runs that may outlive any Claude Code tool invocation. `detach` spawns Codex fully detached — its own session, stdio redirected to files under `$XDG_STATE_HOME/codex-opinion/jobs/<job-id>/`. The script exits immediately with `>> job-id: <id>` and related paths; Codex keeps running after Claude Code's tool call ends. `watch` (with `CODEX_OPINION_JOB_ID=<id>`) tails the job's log and emits compact progress; re-invocable across Monitor expiries. `collect` (with `CODEX_OPINION_JOB_ID=<id>`) prints the final agent_message when the job completes. Each detached job is a fresh Codex thread; use `CODEX_OPINION_SESSION_KEY` for continuity across detaches.
+**`detach` + `watch` + `collect` — asynchronous, no time limit.** For runs that may outlive any Claude Code tool invocation. `detach` spawns Codex fully detached — its own session, stdio redirected to files under `$XDG_STATE_HOME/codex-opinion/jobs/<job-id>/`. The script exits immediately with `>> job-id: <id>` and related paths; Codex keeps running after Claude Code's tool call ends. `watch` (with `CODEX_OPINION_JOB_ID=<id>`) tails the job's log and emits compact progress; re-invocable across Monitor expiries. `collect` (with `CODEX_OPINION_JOB_ID=<id>`) prints the final agent_message when the job completes. **Each detached job is a fresh Codex thread** — detach bypasses the project session state entirely to avoid concurrent-write races with sync-mode calls on the same project. `CODEX_OPINION_SESSION_KEY` is recorded into the manifest for debugging but does not make one detached job resume another; cross-job continuity is not implemented.
 
 **Default (unset or `off`) — synchronous silent.** Matches the pre-1.5.0 contract. Returns the final agent_message on stdout when Codex finishes; no progress output. Useful for short calls, embedding, and debugging.
 
@@ -87,7 +89,9 @@ Every invocation is a three-way reconciliation: send material context (don't dum
 
 ## Session management
 
-One Codex session per project, stored at `$XDG_STATE_HOME/codex-opinion/{project-hash}.json` (default `~/.local/state/codex-opinion/...`). Follow-up calls resume the prior Codex thread so it builds on its accumulated project knowledge — across Claude Code sessions, not just within one.
+*Applies to `off` and `monitor` (sync) modes.* `detach` jobs bypass project session state entirely — see *Live progress and long runs* above.
+
+One Codex session per project, stored at `$XDG_STATE_HOME/codex-opinion/{project-hash}.json` (default `~/.local/state/codex-opinion/...`). Follow-up sync-mode calls resume the prior Codex thread so it builds on its accumulated project knowledge — across Claude Code sessions, not just within one.
 
 Resume failures are handled conservatively. Only known stale-session errors (the stored thread is missing or expired server-side) trigger a fresh restart. Other failures — auth, network, config, or a clean exit with no agent message — are reported with their stderr and the script exits non-zero. This avoids silently re-running prompts that may have non-idempotent side effects under Codex's full filesystem access.
 

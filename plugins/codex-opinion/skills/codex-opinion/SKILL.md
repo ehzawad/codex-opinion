@@ -81,7 +81,7 @@ The script has no time limit. For runs that may outlive any Claude Code tool inv
    CODEX_OPINION_STREAM=collect CODEX_OPINION_JOB_ID=<id> python3 "$CLAUDE_PLUGIN_ROOT/skills/codex-opinion/scripts/ask_codex.py"
    ```
 
-Detached jobs do not touch the project's session state — each detach is a fresh Codex thread. For continuity across detached jobs, wrap them with distinct `CODEX_OPINION_SESSION_KEY` values.
+Detached jobs do not touch the project's session state — each detach is a fresh Codex thread regardless of what's in the project session file. `CODEX_OPINION_SESSION_KEY` is recorded in the job's manifest for debugging only; it does not cause detach to resume any prior thread. Cross-job continuity (chained multi-turn reconciliation across separate detaches) is not implemented. Detach is for fire-and-forget long single runs; use `off` or `monitor` mode when you need continuity.
 
 Progress lines are the progress, not the answer. Reconcile using the final-message file, never any intermediate `>> agent message ready` notification.
 
@@ -118,6 +118,8 @@ If the audit finds something and you materially revise in response, a closing ch
 Keep the cycle bounded: initial briefing, audit when the draft adds material new judgment or synthesis, closing check when the audit materially changes the answer. This is not iterate-to-agreement. If the closing check surfaces a blocker, do not quietly resolve it and present the answer as stabilized; surface the blocker to the human or ask a concrete question.
 
 ## Session state
+
+*Applies to `off` and `monitor` (sync) modes.* Detach jobs have separate per-job manifests under `$STATE_DIR/jobs/<job-id>/` and do not share the per-project thread.
 
 One Codex thread per project at `$XDG_STATE_HOME/codex-opinion/{hash}.json` (default `~/.local/state/codex-opinion/`). Known stale-session errors (`no rollout found`, `thread not found`, `session expired`, and variants) trigger an automatic fresh start. Other failures — auth, network, config, or a clean exit with no agent message — exit non-zero with diagnostics. The script does not silently re-run; Codex has full filesystem access and prompts may be non-idempotent.
 
