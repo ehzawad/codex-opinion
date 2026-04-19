@@ -4,13 +4,13 @@
     "name": "ehzawad"
   },
   "metadata": {
-    "description": "Three-brain collaboration with OpenAI Codex CLI inside Claude Code."
+    "description": "Three-way collaboration with OpenAI Codex CLI inside Claude Code."
   },
   "plugins": [
     {
       "name": "codex-opinion",
       "source": "./plugins/codex-opinion",
-      "description": "Three-brain collaboration with OpenAI Codex — Claude, Codex, and human reconcile on any task."
+      "description": "Three-way collaboration with OpenAI Codex — Claude, Codex, and human reconcile on any task."
     }
   ]
 }

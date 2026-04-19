@@ -1,6 +1,6 @@
 # codex-opinion
 
-A Claude Code plugin that brings OpenAI's Codex CLI into your work as a distinct second model — a collaborator, critic, or reviewer across whatever you're doing right now. Three brains in the loop: you, Claude, and Codex. Install once; invoke from any Claude Code project.
+A Claude Code plugin that brings OpenAI's Codex CLI into your work as a distinct second model — a collaborator, critic, or reviewer across whatever you're doing right now. You, Claude, and Codex in the loop. Install once; invoke from any Claude Code project.
 
 ## Prerequisites
 
@@ -67,7 +67,7 @@ sequenceDiagram
 
 ## Philosophy
 
-Every invocation is a three-brain reconciliation: send material context (don't dump, don't summarize away specifics), make uncertainty explicit, and reconcile assumptions across Claude, Codex, and the human. The full invariants — don't rot or starve the context window, don't panic, don't cheat or lie, don't rush, don't be sycophantic, treat wrong/missing/incomplete assumptions as the origin of bugs — are the baked-in floor in [`SKILL.md`](plugins/codex-opinion/skills/codex-opinion/SKILL.md).
+Every invocation is a three-way reconciliation: send material context (don't dump, don't summarize away specifics), make uncertainty explicit, and reconcile assumptions across Claude, Codex, and the human. The full invariants — keep the context window useful, treat unexpected state calmly, no shortcuts over correctness, no overclaiming, thoughtful over fast, surface disagreement over default agreement, and treating wrong/missing/incomplete assumptions as the origin of errors — are the baked-in floor in [`SKILL.md`](plugins/codex-opinion/skills/codex-opinion/SKILL.md).
 
 ## Session management
 

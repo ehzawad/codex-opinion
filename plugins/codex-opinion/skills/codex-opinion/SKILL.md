@@ -1,10 +1,10 @@
 ---
 name: codex-opinion
-description: Three-brain collaboration with OpenAI Codex (human + Claude + Codex) that adapts in the moment to whatever you're doing. Claude reconciles Codex's take with the work at hand. Invoke /codex-opinion:codex-opinion, or naturally via phrases like "ask codex," "second opinion," "another perspective," "codex weigh in," "reconcile with codex."
+description: Three-way collaboration with OpenAI Codex (human + Claude + Codex) that adapts in the moment to whatever you're doing. Claude reconciles Codex's take with the work at hand. Invoke /codex-opinion:codex-opinion, or naturally via phrases like "ask codex," "second opinion," "another perspective," "codex weigh in," "reconcile with codex."
 argument-hint: [usually empty — compose the briefing into stdin]
 ---
 
-# Codex three-brain collaboration
+# Three-way collaboration with Codex
 
 Codex runs in its own process with full filesystem access. Its working root is the current project — resolved at each invocation from the cwd's git root (or the cwd itself if not in a repo), which is whatever project the user is working in right now. This plugin is not tied to any specific codebase; it works inside any Claude Code project.
 
@@ -12,19 +12,19 @@ Each invocation is a three-way collaboration — human, Claude, Codex. Your job 
 
 Codex cannot see Claude-only state: this conversation's history, transient command output, browser/tool state, external docs, user constraints you inferred from memory. If it's material, brief it. Files in the current project and anything Codex can produce by running commands — leave for Codex to fetch directly.
 
-## Philosophy — baked in, not adaptive
+## Philosophy
 
 These principles hold across every invocation regardless of task. Human, Claude, Codex — same floor for all three. The briefing adapts to the moment; the floor does not.
 
-- **Don't rot the context window — and don't starve it either.** Include every material fact Codex needs to catch wrong/missing/incomplete assumptions (tried paths, current hypotheses, constraints, specific errors, the actual user text). Cut only the procedural fluff around those facts. A summary-only briefing is worse than a dump — Codex can't challenge what it can't see.
-- **Don't panic.** Unexpected state, errors, and disagreements are not emergencies. Find root causes before any destructive or expensive move.
-- **Don't cheat.** No shortcuts that trade correctness for a quick answer. No silently suppressing inconvenient findings.
-- **Don't lie.** Never claim findings you didn't verify, successes you didn't observe, or confidence you don't have. Uncertainty is honest; false certainty corrodes reconciliation.
-- **Don't rush.** A thoughtful second opinion beats a fast one. Codex running long is fine; Codex answering shallowly is not.
-- **Don't be sycophantic.** Three brains agreeing by default is three brains pretending to be one. Surface disagreement with evidence, not politeness.
+- **Keep the context window useful.** Include every material fact Codex needs to catch wrong/missing/incomplete assumptions (tried paths, current hypotheses, constraints, specific errors, the actual user text). Cut only the procedural fluff around those facts. A summary-only briefing is worse than a dump — Codex can't challenge what it can't see.
+- **Unexpected state, errors, and disagreements are not emergencies.** Find root causes before any destructive or expensive move.
+- **No shortcuts that trade correctness for a quick answer.** No silently suppressing inconvenient findings.
+- **Never claim findings you didn't verify, successes you didn't observe, or confidence you don't have.** Uncertainty is honest; false certainty corrodes reconciliation.
+- **A thoughtful second opinion beats a fast one.** Codex running long is fine; Codex answering shallowly is not.
+- **Default agreement across human, Claude, and Codex is not evidence by itself.** Surface disagreement with evidence, not politeness.
 - **Wrong, incomplete, and missing assumptions are the origin of errors and misalignments.** Reconciliation's main job is to surface them — in Claude's briefing, Codex's reply, the user's framing, or prior memory and decisions.
 
-Include a brief marker of this philosophy in your first briefing per project so Codex's framing inherits it. Restate it if any brain drifts (sycophancy creep, hand-wavy certainty, rushed conclusions, unverified claims).
+Include a brief marker of this philosophy in your first briefing per project so Codex's framing inherits it. Restate it if any participant drifts (sycophancy creep, hand-wavy certainty, rushed conclusions, unverified claims).
 
 ## Script
 
@@ -42,7 +42,7 @@ Use this as a lens, not a form — don't mechanically fill headings; include onl
 
 When the material is in the current project, prefer pointing Codex at paths or commands over pasting bulk content — unless the exact text, error, or diff *is* the evidence. If uncommitted changes are material, inline `git diff HEAD` so Codex starts from a shared view of the working state.
 
-When Codex replies, reconcile rather than relay. Agreements build confidence; disagreements need verification in code, docs, or commands (one of you is wrong). Fold in points Codex surfaced that you missed; correct assumptions Codex made that you know are wrong (e.g., from prior user decisions captured in memory) rather than silently accept them; surface points where the user needs to decide between your take and Codex's, don't paper over. Hand the user the reconciled output, not a summary of one brain.
+When Codex replies, reconcile rather than relay. Agreements build confidence; disagreements need verification in code, docs, or commands. Fold in points Codex surfaced that you missed; correct assumptions Codex made that you know are wrong (e.g., from prior user decisions captured in memory) rather than silently accept them; surface points where the user needs to decide between your take and Codex's, don't paper over. Hand the user the reconciled output, not a summary from one of the three.
 
 Show the reasoning path when handing the reconciled output to the user. Surface the material why: which Codex points you accepted or challenged, what evidence or verification shifted the answer, why an audit was or was not needed, and where the user's framing constrained the decision. If uncertainty remains, say so.
 
@@ -62,7 +62,7 @@ Keep the cycle bounded: initial briefing, audit when the draft adds material new
 
 One Codex thread per project at `$XDG_STATE_HOME/codex-opinion/{hash}.json` (default `~/.local/state/codex-opinion/`). Known stale-session errors (`no rollout found`, `thread not found`, `session expired`, and variants) trigger an automatic fresh start. Other failures — auth, network, config, or a clean exit with no agent message — exit non-zero with diagnostics. The script does not silently re-run; Codex has full filesystem access and prompts may be non-idempotent.
 
-Concurrent invocations across different projects are isolated. Concurrent invocations on the same project share the thread and may interleave — possibly confused opinion, never lost work. Intentional.
+Different projects use different Codex threads. The same project shares one thread; concurrent same-project calls may mix context, so run them one at a time when continuity matters.
 
 To delete the state file for this project (start clean), the matching file has a `project_path` field equal to the project root:
 
