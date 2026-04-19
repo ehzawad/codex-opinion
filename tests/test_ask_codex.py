@@ -10,6 +10,7 @@ Run from repo root:
 
 import asyncio
 import hashlib
+import json
 import os
 import sys
 import tempfile
@@ -312,6 +313,18 @@ class StreamModeTests(unittest.TestCase):
         with patch.dict(os.environ, {"CODEX_OPINION_STREAM": "monitor"}, clear=False):
             self.assertEqual(ask_codex._stream_mode(), "monitor")
 
+    def test_detach_value(self):
+        with patch.dict(os.environ, {"CODEX_OPINION_STREAM": "detach"}, clear=False):
+            self.assertEqual(ask_codex._stream_mode(), "detach")
+
+    def test_watch_value(self):
+        with patch.dict(os.environ, {"CODEX_OPINION_STREAM": "watch"}, clear=False):
+            self.assertEqual(ask_codex._stream_mode(), "watch")
+
+    def test_collect_value(self):
+        with patch.dict(os.environ, {"CODEX_OPINION_STREAM": "collect"}, clear=False):
+            self.assertEqual(ask_codex._stream_mode(), "collect")
+
     def test_monitor_case_insensitive(self):
         with patch.dict(os.environ, {"CODEX_OPINION_STREAM": "Monitor  "}, clear=False):
             self.assertEqual(ask_codex._stream_mode(), "monitor")
@@ -579,6 +592,136 @@ class StreamDriverTests(unittest.TestCase):
         # Five turn.started events should each produce a progress line.
         self.assertEqual(stdout_captured.count(">> turn started"), 5)
         self.assertGreater(len(result.stderr), 1000)
+
+
+class DetachWatchCollectTests(unittest.TestCase):
+    """Detach mode spawns a detached subprocess and writes a manifest;
+    watch/collect read the manifest and produce output. Tests avoid
+    invoking real codex by substituting python3 -c child scripts that
+    mimic codex's JSONL output to files.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state_patcher = patch.object(ask_codex, "STATE_DIR", self.tmp.name)
+        self.jobs_patcher = patch.object(ask_codex, "JOBS_DIR", os.path.join(self.tmp.name, "jobs"))
+        self.state_patcher.start()
+        self.jobs_patcher.start()
+        self.addCleanup(self.state_patcher.stop)
+        self.addCleanup(self.jobs_patcher.stop)
+
+    def _make_job(self, pid, sidecar_content=None, err_content=None, log_content=None):
+        job_id = ask_codex._new_job_id()
+        job_dir = ask_codex._job_dir(job_id)
+        os.makedirs(job_dir, exist_ok=True)
+        sidecar_path = os.path.join(job_dir, "lastmsg.txt")
+        err_path = os.path.join(job_dir, "err.log")
+        log_path = os.path.join(job_dir, "log.jsonl")
+        prompt_path = os.path.join(job_dir, "prompt.txt")
+        with open(prompt_path, "w") as f:
+            f.write("")
+        with open(err_path, "w") as f:
+            f.write(err_content or "")
+        with open(log_path, "w") as f:
+            f.write(log_content or "")
+        if sidecar_content is not None:
+            with open(sidecar_path, "w") as f:
+                f.write(sidecar_content)
+        manifest = {
+            "job_id": job_id,
+            "pid": pid,
+            "cmd": ["codex", "exec"],
+            "prompt_path": prompt_path,
+            "log_path": log_path,
+            "err_path": err_path,
+            "sidecar_path": sidecar_path,
+            "project_path": "/x",
+            "started_at": "2026-04-19T00:00:00Z",
+        }
+        with open(os.path.join(job_dir, "manifest.json"), "w") as f:
+            json.dump(manifest, f)
+        return job_id, manifest
+
+    def test_collect_prints_sidecar_content(self):
+        import json as _json
+        # Use a PID that cannot be alive (1 is init; kill(1,0) may succeed,
+        # but we still produce content so we return before the alive check).
+        job_id, _ = self._make_job(pid=99999999, sidecar_content="the answer\n")
+        captured = []
+        with patch.object(ask_codex.sys, "stdout") as mock_stdout:
+            mock_stdout.write = lambda s: captured.append(s) or len(s)
+            mock_stdout.flush = lambda: None
+            ask_codex._collect_job(job_id)
+        self.assertIn("the answer", "".join(captured))
+
+    def test_collect_errors_when_job_missing(self):
+        with self.assertRaises(SystemExit) as cm:
+            ask_codex._collect_job("nonexistent-job")
+        self.assertEqual(cm.exception.code, 1)
+
+    def test_collect_errors_when_job_running_with_empty_sidecar(self):
+        import os as _os
+        job_id, manifest = self._make_job(pid=_os.getpid(), sidecar_content="")
+        # Our own pid is alive; sidecar is empty → "still running" error
+        with self.assertRaises(SystemExit) as cm:
+            ask_codex._collect_job(job_id)
+        self.assertEqual(cm.exception.code, 1)
+
+    def test_pid_alive_self(self):
+        self.assertTrue(ask_codex._pid_alive(os.getpid()))
+
+    def test_pid_alive_bogus_returns_false(self):
+        # 99999999 virtually certainly doesn't exist.
+        self.assertFalse(ask_codex._pid_alive(99999999))
+
+    def test_new_job_id_is_unique(self):
+        ids = {ask_codex._new_job_id() for _ in range(10)}
+        self.assertEqual(len(ids), 10)
+
+
+class DetachSpawnAndWatchIntegrationTests(unittest.TestCase):
+    """Real subprocess detach + real file-based watch, using python3 as the
+    'codex' child so we don't need the real codex CLI for these tests."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state_patcher = patch.object(ask_codex, "STATE_DIR", self.tmp.name)
+        self.jobs_patcher = patch.object(ask_codex, "JOBS_DIR", os.path.join(self.tmp.name, "jobs"))
+        self.state_patcher.start()
+        self.jobs_patcher.start()
+        self.addCleanup(self.state_patcher.stop)
+        self.addCleanup(self.jobs_patcher.stop)
+
+    def test_spawn_detached_child_writes_expected_files(self):
+        import os as _os
+        job_dir = os.path.join(self.tmp.name, "jobs", "test-job")
+        os.makedirs(job_dir, exist_ok=True)
+        prompt_path = os.path.join(job_dir, "prompt.txt")
+        log_path = os.path.join(job_dir, "log.jsonl")
+        err_path = os.path.join(job_dir, "err.log")
+        with open(prompt_path, "w") as f:
+            f.write("ignored\n")
+
+        child = (
+            "import sys, time\n"
+            "sys.stdin.read()\n"
+            "for msg in ['ev1', 'ev2']:\n"
+            "    print(msg, flush=True)\n"
+            "    time.sleep(0.05)\n"
+        )
+        pid = ask_codex._spawn_codex_detached(
+            [sys.executable, "-c", child],
+            prompt_path, log_path, err_path,
+        )
+        self.assertGreater(pid, 0)
+        # Wait for the child to finish writing
+        _os.waitpid(pid, 0)
+        with open(log_path) as f:
+            contents = f.read()
+        self.assertIn("ev1", contents)
+        self.assertIn("ev2", contents)
 
 
 if __name__ == "__main__":

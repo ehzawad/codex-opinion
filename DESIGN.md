@@ -87,3 +87,21 @@ sequenceDiagram
 ```
 
 No timeout is enforced on the subprocess. No threads are used — concurrency is entirely `asyncio.gather`. Keyboard interrupts and exceptions cancel all in-flight tasks and escalate termination through `SIGTERM` → `SIGKILL` on the process group.
+
+## Detach / watch / collect (v1.6.0)
+
+`CODEX_OPINION_STREAM=detach` spawns codex fully detached and exits immediately. The child runs to completion on its own timeline — hours, days, or weeks — surviving Claude Code tool-call lifecycles and Monitor's 1-hour ceiling. State lives on disk under `$STATE_DIR/jobs/<job-id>/`:
+
+- `manifest.json` — `{job_id, pid, cmd, prompt_path, log_path, err_path, sidecar_path, project_path, started_at}`
+- `prompt.txt` — the briefing piped into codex's stdin
+- `log.jsonl` — codex's stdout (raw JSONL events)
+- `err.log` — codex's stderr
+- `lastmsg.txt` — the final agent_message, written by codex's `-o` flag
+
+`_spawn_codex_detached` uses `subprocess.Popen(..., start_new_session=True, close_fds=True)` with stdio pre-redirected to file handles. After spawn, the parent closes its fd copies (the child retains its own) and returns just the PID; the Popen instance goes out of scope and the kernel reparents the child to init when we exit.
+
+Detached jobs do not touch the project's session state. Each detach is a fresh codex thread to avoid concurrent-write races with synchronous calls on the same project. Continuity across detaches requires explicit `CODEX_OPINION_SESSION_KEY` per job.
+
+`CODEX_OPINION_STREAM=watch` (with `CODEX_OPINION_JOB_ID=<id>`) opens the job's `log.jsonl` and polls for new content, emitting compact progress lines as events arrive. Uses `os.kill(pid, 0)` to detect process death; after the process dies, reads trailing bytes and emits `>> final-message: <sidecar_path>`. Re-invocable across Monitor expiries — watch is a separate process from codex, so killing watch doesn't affect the detached codex.
+
+`CODEX_OPINION_STREAM=collect` (with `CODEX_OPINION_JOB_ID=<id>`) reads the sidecar and prints its contents; errors if the job is still running or produced no message.

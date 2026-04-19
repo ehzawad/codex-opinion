@@ -9,26 +9,41 @@ responsible for constructing a complete, self-framed prompt.
 Non-blocking by design: the subprocess driver is asyncio-native with
 concurrent stdin-feed, stdout-drain, and stderr-drain tasks gathered
 in a single event loop. No threads. No polling sleeps. No per-stream
-timeouts (codex exec can legitimately run for an hour or more; the
-wrapper never imposes its own time ceiling).
+timeouts — codex exec can legitimately run for hours, days, or longer;
+the wrapper never imposes its own time ceiling.
 
 An optional positional argument is prepended to the stdin body with a
 blank-line separator, as a convenience for direct CLI use. Most Claude
 Code invocations should leave it empty and bake any framing into stdin.
 
-Two output modes:
+Modes (CODEX_OPINION_STREAM env var):
 
-- Default (unset / CODEX_OPINION_STREAM=off): silent during the run;
-  prints the final agent_message text to stdout when codex finishes.
-  Matches the pre-streaming contract.
+- off (default / unset): synchronous. Silent during the run; prints
+  the final agent_message text to stdout when codex finishes. Matches
+  the pre-streaming contract.
 
-- Streaming (CODEX_OPINION_STREAM=monitor): emits compact progress
-  lines (`>> turn started`, `>> tool done: exit=0 ...`, etc.) to stdout
-  as Codex events arrive. The final agent_message text is written to a
-  sidecar file under $STATE_DIR/lastmsg/{pid}.txt and its path is
-  emitted as `>> final-message: <path>` so Claude Code's Monitor tool
-  can pick both up. Intended for long Codex runs where the human
-  should see progress live instead of silence.
+- monitor: synchronous + compact progress lines. Emits `>> turn ...`,
+  `>> tool ...`, `>> agent message ready`, `>> turn done: ...` to
+  stdout as Codex events arrive, writes the final agent_message to a
+  sidecar at $STATE_DIR/lastmsg/{pid}.txt, and emits `>> final-message:
+  <path>`. Intended for runs that will complete inside the Claude Code
+  surface's timeout (Monitor maxes at 1h).
+
+- detach: asynchronous, no time limit. Spawns codex fully detached
+  (own session, stdin/stdout/stderr redirected to files under
+  $STATE_DIR/jobs/<job-id>/), writes a manifest, exits immediately
+  with `>> job-id: <id>` etc. Codex continues running after Claude
+  Code's tool call ends. Use for runs that may exceed any Claude Code
+  surface's timeout.
+
+- watch (requires CODEX_OPINION_JOB_ID): tail a detached job's log
+  and emit compact progress lines until the job ends or the watcher
+  is killed. Re-invocable across Monitor expiries — the codex process
+  is unaffected.
+
+- collect (requires CODEX_OPINION_JOB_ID): print a detached job's
+  final agent_message from its sidecar file. Errors if the job is
+  still running or produced no message.
 
 Set CODEX_OPINION_SESSION_KEY to isolate a session's Codex thread from
 the project-wide thread. Unset or empty keeps one-thread-per-project.
@@ -39,6 +54,9 @@ $STATE_DIR/logs/{project-hash}-{timestamp}.jsonl for debugging.
 Usage:
     echo "<prompt>" | python3 ask_codex.py
     CODEX_OPINION_STREAM=monitor echo "<prompt>" | python3 ask_codex.py
+    echo "<prompt>" | CODEX_OPINION_STREAM=detach python3 ask_codex.py
+    CODEX_OPINION_STREAM=watch   CODEX_OPINION_JOB_ID=<id> python3 ask_codex.py
+    CODEX_OPINION_STREAM=collect CODEX_OPINION_JOB_ID=<id> python3 ask_codex.py
 """
 
 import asyncio
@@ -59,7 +77,9 @@ STATE_DIR = os.path.join(
 )
 SIDECAR_DIR = os.path.join(STATE_DIR, "lastmsg")
 LOG_DIR = os.path.join(STATE_DIR, "logs")
+JOBS_DIR = os.path.join(STATE_DIR, "jobs")
 SIDECAR_MAX_AGE_SECS = 24 * 3600
+WATCH_POLL_INTERVAL_SECS = 0.25
 
 # Lowercased stderr substrings from `codex exec resume` that indicate the
 # stored session can no longer be resumed (stale/expired/missing). On match
@@ -115,9 +135,15 @@ def _state_path():
 
 
 def _stream_mode():
-    """Return 'monitor' if CODEX_OPINION_STREAM=monitor, else 'off'."""
-    if os.environ.get("CODEX_OPINION_STREAM", "").strip().lower() == "monitor":
-        return "monitor"
+    """Return the configured stream mode or 'off'.
+
+    Recognizes 'monitor', 'detach', 'watch', 'collect'. Anything else
+    (including unset) is treated as 'off' (default synchronous silent
+    mode). Case-insensitive.
+    """
+    val = os.environ.get("CODEX_OPINION_STREAM", "").strip().lower()
+    if val in ("monitor", "detach", "watch", "collect"):
+        return val
     return "off"
 
 
@@ -466,13 +492,253 @@ def _finalize(msg, stream_mode, sidecar_path):
     return msg
 
 
+def _new_job_id():
+    """Generate a human-legible per-job identifier: {UTC-timestamp}-{rand8}."""
+    ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    rand = hashlib.sha256(os.urandom(16)).hexdigest()[:8]
+    return f"{ts}-{rand}"
+
+
+def _job_dir(job_id):
+    return os.path.join(JOBS_DIR, job_id)
+
+
+def _pid_alive(pid):
+    """Return True if the given PID is still running."""
+    if pid is None or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # PID exists but owned by someone else (shouldn't happen for our
+        # own detached children, but be conservative).
+        return True
+    return True
+
+
+def _spawn_codex_detached(cmd, prompt_path, log_path, err_path):
+    """Spawn codex with stdio fully redirected to files; return the PID.
+
+    The child is in its own session (start_new_session=True) so it
+    survives the exit of the parent (this script). Parent does not
+    wait(); the kernel reparents the child to init when we exit.
+    """
+    stdin_f = open(prompt_path, "rb")
+    stdout_f = open(log_path, "wb")
+    stderr_f = open(err_path, "wb")
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=stdin_f,
+            stdout=stdout_f,
+            stderr=stderr_f,
+            start_new_session=True,
+            close_fds=True,
+        )
+    finally:
+        # Close our copies of the fds — the child retains its own.
+        stdin_f.close()
+        stdout_f.close()
+        stderr_f.close()
+    return proc.pid
+
+
+async def _run_codex_detach_async(prompt):
+    """Fire codex into a detached job dir; exit fast with job info.
+
+    Detached jobs do NOT touch the project's session state file (to
+    avoid concurrent-write races with synchronous calls). Each detach
+    starts a fresh codex thread; continuity across detaches is a
+    future feature if needed. Session continuation within a detached
+    job's own turns IS handled by codex internally (one thread,
+    multiple turns if the prompt triggers them).
+    """
+    job_id = _new_job_id()
+    job_dir = _job_dir(job_id)
+    os.makedirs(job_dir, exist_ok=True)
+
+    prompt_path = os.path.join(job_dir, "prompt.txt")
+    log_path = os.path.join(job_dir, "log.jsonl")
+    err_path = os.path.join(job_dir, "err.log")
+    sidecar_path = os.path.join(job_dir, "lastmsg.txt")
+
+    with open(prompt_path, "w") as f:
+        f.write(prompt)
+
+    root = _project_root()
+    cmd = [
+        "codex", "exec", "-C", root,
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--json", "--skip-git-repo-check",
+        "-o", sidecar_path,
+        "-",
+    ]
+    pid = _spawn_codex_detached(cmd, prompt_path, log_path, err_path)
+
+    manifest = {
+        "job_id": job_id,
+        "pid": pid,
+        "cmd": cmd,
+        "prompt_path": prompt_path,
+        "log_path": log_path,
+        "err_path": err_path,
+        "sidecar_path": sidecar_path,
+        "project_path": root,
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    session_key = _session_key()
+    if session_key:
+        manifest["session_key"] = session_key
+    manifest_path = os.path.join(job_dir, "manifest.json")
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2)
+
+    print(f">> job-id: {job_id}", flush=True)
+    print(f">> job-dir: {job_dir}", flush=True)
+    print(f">> pid: {pid}", flush=True)
+    print(f">> log: {log_path}", flush=True)
+    print(f">> sidecar: {sidecar_path}", flush=True)
+    return None
+
+
+def _load_manifest(job_id):
+    """Load a job manifest or exit non-zero with diagnostics."""
+    manifest_path = os.path.join(_job_dir(job_id), "manifest.json")
+    try:
+        with open(manifest_path) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"[codex-opinion] no job with id {job_id}", file=sys.stderr)
+        sys.exit(1)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"[codex-opinion] cannot read job {job_id}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+async def _watch_job_async(job_id):
+    """Tail a detached job's log and emit compact progress lines.
+
+    Exits when codex exits AND the log is fully consumed (seeing the
+    trailing bytes that flushed at child exit). Re-invocable — reopens
+    the log from the start. For live visibility across a long run,
+    invoke from Monitor and re-invoke when Monitor expires.
+    """
+    manifest = _load_manifest(job_id)
+    pid = manifest.get("pid")
+    log_path = manifest.get("log_path", "")
+
+    # Open the log; if it doesn't exist yet, wait briefly.
+    for _ in range(40):
+        if os.path.exists(log_path):
+            break
+        await asyncio.sleep(WATCH_POLL_INTERVAL_SECS)
+    else:
+        print(f"[codex-opinion] log file missing for job {job_id}", file=sys.stderr)
+        sys.exit(1)
+
+    buf = ""
+    sidecar_path = manifest.get("sidecar_path")
+    with open(log_path, "r") as f:
+        while True:
+            chunk = f.read()
+            if chunk:
+                buf += chunk
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        event = json.loads(stripped)
+                    except json.JSONDecodeError:
+                        continue
+                    progress = _event_to_progress_line(event)
+                    if progress:
+                        print(progress, flush=True)
+            else:
+                if not _pid_alive(pid):
+                    # Process dead; one last read to catch trailing bytes.
+                    chunk = f.read()
+                    if chunk:
+                        buf += chunk
+                        while "\n" in buf:
+                            line, buf = buf.split("\n", 1)
+                            stripped = line.strip()
+                            if not stripped:
+                                continue
+                            try:
+                                event = json.loads(stripped)
+                            except json.JSONDecodeError:
+                                continue
+                            progress = _event_to_progress_line(event)
+                            if progress:
+                                print(progress, flush=True)
+                    break
+                await asyncio.sleep(WATCH_POLL_INTERVAL_SECS)
+
+    # Job has ended. Report completion or failure.
+    if sidecar_path and os.path.exists(sidecar_path) and os.path.getsize(sidecar_path) > 0:
+        print(f">> final-message: {sidecar_path}", flush=True)
+        return None
+
+    err_tail = ""
+    err_path = manifest.get("err_path")
+    if err_path:
+        try:
+            with open(err_path) as ef:
+                err_tail = ef.read()[-500:]
+        except OSError:
+            pass
+    msg = f"job {job_id} finished without agent_message"
+    if err_tail.strip():
+        msg += f" — stderr tail: {err_tail.strip()[:200]}"
+    print(f"[codex-opinion] {msg}", file=sys.stderr)
+    _mirror_to_monitor("error", msg, "monitor")
+    sys.exit(1)
+
+
+def _collect_job(job_id):
+    """Print a completed job's final agent_message. Exit non-zero if unavailable."""
+    manifest = _load_manifest(job_id)
+    sidecar_path = manifest.get("sidecar_path")
+    pid = manifest.get("pid")
+
+    if not sidecar_path or not os.path.exists(sidecar_path) or os.path.getsize(sidecar_path) == 0:
+        if _pid_alive(pid):
+            print(
+                f"[codex-opinion] job {job_id} still running (pid {pid}); "
+                f"use CODEX_OPINION_STREAM=watch or wait and retry.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        err_tail = ""
+        err_path = manifest.get("err_path")
+        if err_path:
+            try:
+                with open(err_path) as ef:
+                    err_tail = ef.read()[-500:]
+            except OSError:
+                pass
+        suffix = f" — stderr tail: {err_tail.strip()[:200]}" if err_tail.strip() else ""
+        print(f"[codex-opinion] job {job_id} finished without agent_message{suffix}", file=sys.stderr)
+        sys.exit(1)
+
+    with open(sidecar_path) as f:
+        sys.stdout.write(f.read())
+
+
 async def run_codex_async(prompt):
     """Send `prompt` to codex exec, resuming the prior session if present."""
+
+    stream_mode = _stream_mode()
+    if stream_mode == "detach":
+        return await _run_codex_detach_async(prompt)
 
     _gc_old_sidecars()
     root = _project_root()
     session_id, meta = load_session()
-    stream_mode = _stream_mode()
     sidecar_path = _sidecar_path_for_pid(os.getpid()) if stream_mode == "monitor" else None
     log_fh = _open_log()
 
@@ -586,6 +852,25 @@ def run_codex(prompt):
 
 
 async def main_async():
+    mode = _stream_mode()
+
+    # watch/collect are orthogonal to codex spawning — they operate on
+    # existing detached jobs by ID. Dispatch them early so we skip the
+    # codex-binary check and the stdin requirement.
+    if mode in ("watch", "collect"):
+        job_id = os.environ.get("CODEX_OPINION_JOB_ID", "").strip()
+        if not job_id:
+            print(
+                f"[codex-opinion] CODEX_OPINION_STREAM={mode} requires CODEX_OPINION_JOB_ID",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if mode == "watch":
+            await _watch_job_async(job_id)
+        else:
+            _collect_job(job_id)
+        return
+
     if not shutil.which("codex"):
         print("Codex CLI not found — install with: npm i -g @openai/codex", file=sys.stderr)
         sys.exit(1)
