@@ -22,7 +22,7 @@ These principles hold across every invocation regardless of task. Human, Claude,
 - **Don't lie.** Never claim findings you didn't verify, successes you didn't observe, or confidence you don't have. Uncertainty is honest; false certainty corrodes reconciliation.
 - **Don't rush.** A thoughtful second opinion beats a fast one. Codex running long is fine; Codex answering shallowly is not.
 - **Don't be sycophantic.** Three brains agreeing by default is three brains pretending to be one. Surface disagreement with evidence, not politeness.
-- **Wrong, incomplete, and missing assumptions are the origin of bugs and misalignments.** Reconciliation's main job is to surface them — in Claude's briefing, Codex's reply, the user's framing, or prior memory and decisions.
+- **Wrong, incomplete, and missing assumptions are the origin of errors and misalignments.** Reconciliation's main job is to surface them — in Claude's briefing, Codex's reply, the user's framing, or prior memory and decisions.
 
 Include a brief marker of this philosophy in your first briefing per project so Codex's framing inherits it. Restate it if any brain drifts (sycophancy creep, hand-wavy certainty, rushed conclusions, unverified claims).
 
@@ -38,7 +38,7 @@ First call per project establishes Codex's framing; later calls resume the same 
 
 ## Briefing and reconciliation
 
-Use this as a lens, not a form — don't mechanically fill headings; include only what's material for this moment, and omit empty parts entirely (no `N/A` padding): objective; the output Codex should produce; your current read, or that you don't have one yet; observed evidence (exact user text, errors, diffs, outputs); negative evidence (hypotheses already ruled out, and why); constraints and prior decisions (don't relitigate); where Codex should look (paths, commands, branch state, failing test names); the exact question; known non-goals (Codex may challenge them if they conflict with the objective).
+Use this as a lens, not a form — don't mechanically fill headings; include only what's material for this moment, and omit empty parts entirely (no `N/A` padding): objective; the output Codex should produce; your current read, or that you don't have one yet; observed evidence (exact user text, errors, diffs, outputs); negative evidence (hypotheses already ruled out, and why); constraints and prior decisions (don't relitigate); where Codex should look (paths, commands, branches and diffs, artifacts, or specific evidence); the exact question; known non-goals (Codex may challenge them if they conflict with the objective).
 
 When the material is in the current project, prefer pointing Codex at paths or commands over pasting bulk content — unless the exact text, error, or diff *is* the evidence. If uncommitted changes are material, inline `git diff HEAD` so Codex starts from a shared view of the working state.
 
@@ -52,7 +52,7 @@ codex-opinion is single-round by default. Before finalizing, check whether your 
 
 Because this decision is self-judged, treat uncertainty about whether you added material judgment as a reason to audit, especially when turning Codex's findings into a recommendation, priority, severity, confidence change, or go/no-go answer.
 
-An audit call should include the draft itself, name the specific new or changed claims, and keep the ask narrow: not a rewrite, not polish, not consensus.
+An audit call should include the draft itself, name the specific new or changed claims, and keep the ask narrow.
 
 If the audit finds something and you materially revise in response, a closing check lets Codex see the revision before you finalize. Include the revised answer, the audit findings and how you handled them, and what changed. Ask Codex to look only for blockers introduced by the revision itself: new material claims, lost uncertainty, or misapplied audit findings that would make the answer misleading, unsupported, or materially incomplete.
 
