@@ -44,11 +44,9 @@ reconcile with codex
 
 ## How it works
 
-The script is a pure transport with an asyncio event-loop driver: it pipes whatever Claude Code writes to stdin straight into `codex exec` (or `codex exec resume` when a prior session exists), concurrently drains stdout/stderr without blocking, and either prints the final answer on stdout (default) or forwards compact progress lines live to stdout and writes the final answer to a sidecar file (streaming mode). There is no built-in prompt, no templates, no auto-bundling. Claude Code composes the full briefing every call — adapted to the current task, phase, and recent turns. On the first call per project, Claude's briefing establishes Codex's framing; follow-up calls resume the same Codex thread so Codex carries accumulated project knowledge. Claude reframes explicitly when the task shifts so prior framing doesn't bias later turns.
+The script is a pure transport: it pipes whatever Claude Code writes to stdin straight into `codex exec` (or `codex exec resume` when a prior session exists). There is no built-in prompt, no templates, no auto-bundling. Claude Code composes the full briefing every call — adapted to the current task, phase, and recent turns. On the first call per project, Claude's briefing establishes Codex's framing; follow-up calls resume the same Codex thread so Codex carries accumulated project knowledge. Claude reframes explicitly when the task shifts so prior framing doesn't bias later turns.
 
 Codex uses your configured model and settings from `~/.codex/config.toml`, reads the current project directly, runs commands, and does deep analysis. Claude reconciles Codex's response against its own assessment — agreements, specific disagreements, missed points — and reports the reconciled output to you. When Claude's reconciliation adds material new judgment or synthesis, it can ask Codex to audit the draft, and if that audit materially changes the answer, run one closing check on the revision. The protocol stays bounded — briefing, audit when needed, closing check when needed — rather than iterating toward agreement.
-
-The diagram below shows the **`monitor`-mode** flow (synchronous, live progress, final message via sidecar). The alternate long-run path — `detach` + `watch` + `collect` — is covered textually in *Live progress and long runs* below; its shape is similar but the script exits immediately after spawning Codex and separate `watch` / `collect` invocations read the job's log and sidecar.
 
 ```mermaid
 sequenceDiagram
@@ -59,29 +57,13 @@ sequenceDiagram
 
     U->>C: /codex-opinion:codex-opinion
     C->>C: Compose adaptive briefing
-    C->>S: Monitor: stream briefing via stdin
+    C->>S: Pipe briefing via stdin
     S->>X: codex exec --json (stdin passthrough)
-    loop as events arrive
-        X-->>S: JSONL event
-        S-->>C: `>> ...` compact progress line
-    end
-    S->>S: Write final answer to sidecar file
-    S-->>C: `>> final-message: <path>`
-    C->>S: Read sidecar
+    X-->>S: JSONL events
+    S->>S: Extract final message
+    S-->>C: Codex's analysis via stdout
     C-->>U: Reconciles and reports
 ```
-
-## Live progress and long runs
-
-The script itself has **no time limit**. Codex runs can take minutes, hours, days, or weeks. Three invocation shapes cover the range, picked via `CODEX_OPINION_STREAM`:
-
-**`monitor` — synchronous with live progress (< 1h).** Claude Code's Monitor tool streams compact progress lines (`>> tool: …`, `>> tool done: exit=0 …`, `>> agent message ready`, `>> turn done: …`) as notifications while Codex works. Errors and stale-session recoveries surface as `>> error: …` / `>> warning: …`. Final message via sidecar at `$XDG_STATE_HOME/codex-opinion/lastmsg/{pid}.txt`; Claude Reads it after Monitor completes. Runs up to Monitor's 1-hour ceiling; beyond that, use detach.
-
-**`detach` + `watch` + `collect` — asynchronous, no time limit.** For runs that may outlive any Claude Code tool invocation. `detach` spawns Codex fully detached — its own session, stdio redirected to files under `$XDG_STATE_HOME/codex-opinion/jobs/<job-id>/`. The script exits immediately with `>> job-id: <id>` and related paths; Codex keeps running after Claude Code's tool call ends. `watch` (with `CODEX_OPINION_JOB_ID=<id>`) tails the job's log and emits compact progress; re-invocable across Monitor expiries. `collect` (with `CODEX_OPINION_JOB_ID=<id>`) prints the final agent_message when the job completes. **Each detached job is a fresh Codex thread** — detach bypasses the project session state entirely to avoid concurrent-write races with sync-mode calls on the same project. `CODEX_OPINION_SESSION_KEY` is recorded into the manifest for debugging but does not make one detached job resume another; cross-job continuity is not implemented.
-
-**Default (unset or `off`) — synchronous silent.** Matches the pre-1.5.0 contract. Returns the final agent_message on stdout when Codex finishes; no progress output. Useful for short calls, embedding, and debugging.
-
-The stream is not the answer. Progress is progress. Always use the final-message sidecar (or `collect`'s stdout) as the handoff.
 
 ## Philosophy
 
@@ -89,9 +71,7 @@ Every invocation is a three-way reconciliation: send material context (don't dum
 
 ## Session management
 
-*Applies to `off` and `monitor` (sync) modes.* `detach` jobs bypass project session state entirely — see *Live progress and long runs* above.
-
-One Codex session per project, stored at `$XDG_STATE_HOME/codex-opinion/{project-hash}.json` (default `~/.local/state/codex-opinion/...`). Follow-up sync-mode calls resume the prior Codex thread so it builds on its accumulated project knowledge — across Claude Code sessions, not just within one.
+One Codex session per project, stored at `$XDG_STATE_HOME/codex-opinion/{project-hash}.json` (default `~/.local/state/codex-opinion/...`). Follow-up calls resume the prior Codex thread so it builds on its accumulated project knowledge — across Claude Code sessions, not just within one.
 
 Resume failures are handled conservatively. Only known stale-session errors (the stored thread is missing or expired server-side) trigger a fresh restart. Other failures — auth, network, config, or a clean exit with no agent message — are reported with their stderr and the script exits non-zero. This avoids silently re-running prompts that may have non-idempotent side effects under Codex's full filesystem access.
 
@@ -134,12 +114,11 @@ claude plugins install codex-opinion@codex-opinion       # skip if already insta
 ```
 
 `scripts/dev-link.sh` does two things:
+
 1. Creates a symlink at `~/.claude/plugins/cache/codex-opinion/codex-opinion/<version>/` → this repo's working tree, so edits are live at runtime.
 2. Rewrites `~/.claude/plugins/installed_plugins.json` so the harness's `installPath` and `version` fields point at the symlinked version.
 
-Step 2 is load-bearing: the harness loads whichever `installPath` the manifest declares, **not** whichever symlinks exist in the cache. Without the manifest rewrite, bumping the version in `plugin.json` and re-running dev-link creates a new symlink that the harness will happily ignore. This is the "I edited files but Claude Code is still loading the old version" trap — dev-link.sh now fixes it automatically every run.
-
-Re-run `scripts/dev-link.sh` after any version bump in `plugin.json`, any `claude plugins update`, or any cache wipe. Restart Claude Code once so the session rebinds.
+Step 2 is load-bearing: the harness loads whichever `installPath` the manifest declares, **not** whichever symlinks exist in the cache. Without the manifest rewrite, bumping the version in `plugin.json` and re-running dev-link creates a new symlink that the harness will happily ignore.
 
 After the one-time restart, edits to `plugins/codex-opinion/**` are live on the next `/codex-opinion:codex-opinion` invocation. **SKILL.md caveat:** the Claude Code harness's skill-content caching behavior is not documented, so `SKILL.md` edits may still require a session restart; the script and the rest of the plugin files update live.
 

@@ -8,13 +8,10 @@ Run from repo root:
     python3 -m unittest discover -s tests -p 'test_*.py'
 """
 
-import asyncio
 import hashlib
-import json
 import os
 import sys
 import tempfile
-import time
 import unittest
 from unittest.mock import patch
 
@@ -249,6 +246,15 @@ class StaleResumeErrorTests(unittest.TestCase):
         self.assertFalse(ask_codex._is_stale_resume_error(""))
 
 
+class _FakeProc:
+    """Minimal subprocess.run-like result for mocking _run_codex_proc."""
+
+    def __init__(self, stdout="", stderr="", returncode=0):
+        self.stdout = stdout
+        self.stderr = stderr
+        self.returncode = returncode
+
+
 def _fresh_jsonl():
     return (
         '{"type": "thread.started", "thread_id": "new-sid"}\n'
@@ -260,24 +266,20 @@ def _resume_jsonl():
     return '{"type": "item.completed", "item": {"type": "agent_message", "text": "resumed"}}'
 
 
-def _stream_result(stdout="", stderr="", returncode=0):
-    return ask_codex.StreamResult(returncode=returncode, stdout=stdout, stderr=stderr)
-
-
 class RunCodexCommandShapeTests(unittest.TestCase):
     """Guard the `-C` placement foot-gun for `codex exec resume`."""
 
     def test_resume_places_C_before_resume_keyword(self):
         captured = {}
 
-        async def fake_stream(cmd, prompt, **_kwargs):
+        def fake_proc(cmd, prompt):
             captured["cmd"] = cmd
-            return _stream_result(stdout=_resume_jsonl())
+            return _FakeProc(stdout=_resume_jsonl())
 
-        with patch.object(ask_codex, "_run_codex_stream_async", side_effect=fake_stream), \
+        with patch.object(ask_codex, "_run_codex_proc", side_effect=fake_proc), \
              patch.object(ask_codex, "load_session", return_value=("existing-sid", {"updated_at": "t"})), \
              patch.object(ask_codex, "save_session"):
-            asyncio.run(ask_codex.run_codex_async("hi"))
+            ask_codex.run_codex("hi")
 
         cmd = captured["cmd"]
         self.assertIn("-C", cmd)
@@ -291,78 +293,23 @@ class RunCodexCommandShapeTests(unittest.TestCase):
     def test_fresh_call_has_no_resume_keyword(self):
         captured = {}
 
-        async def fake_stream(cmd, prompt, **_kwargs):
+        def fake_proc(cmd, prompt):
             captured["cmd"] = cmd
-            return _stream_result(stdout=_fresh_jsonl())
+            return _FakeProc(stdout=_fresh_jsonl())
 
-        with patch.object(ask_codex, "_run_codex_stream_async", side_effect=fake_stream), \
+        with patch.object(ask_codex, "_run_codex_proc", side_effect=fake_proc), \
              patch.object(ask_codex, "load_session", return_value=(None, None)), \
              patch.object(ask_codex, "save_session"):
-            asyncio.run(ask_codex.run_codex_async("hi"))
+            ask_codex.run_codex("hi")
 
         self.assertNotIn("resume", captured["cmd"])
         self.assertIn("-C", captured["cmd"])
 
 
-class StreamModeTests(unittest.TestCase):
-    def test_off_by_default(self):
-        with patch.dict(os.environ, {k: v for k, v in os.environ.items() if k != "CODEX_OPINION_STREAM"}, clear=True):
-            self.assertEqual(ask_codex._stream_mode(), "off")
-
-    def test_monitor_value(self):
-        with patch.dict(os.environ, {"CODEX_OPINION_STREAM": "monitor"}, clear=False):
-            self.assertEqual(ask_codex._stream_mode(), "monitor")
-
-    def test_detach_value(self):
-        with patch.dict(os.environ, {"CODEX_OPINION_STREAM": "detach"}, clear=False):
-            self.assertEqual(ask_codex._stream_mode(), "detach")
-
-    def test_watch_value(self):
-        with patch.dict(os.environ, {"CODEX_OPINION_STREAM": "watch"}, clear=False):
-            self.assertEqual(ask_codex._stream_mode(), "watch")
-
-    def test_collect_value(self):
-        with patch.dict(os.environ, {"CODEX_OPINION_STREAM": "collect"}, clear=False):
-            self.assertEqual(ask_codex._stream_mode(), "collect")
-
-    def test_monitor_case_insensitive(self):
-        with patch.dict(os.environ, {"CODEX_OPINION_STREAM": "Monitor  "}, clear=False):
-            self.assertEqual(ask_codex._stream_mode(), "monitor")
-
-    def test_unrecognized_values_are_off(self):
-        with patch.dict(os.environ, {"CODEX_OPINION_STREAM": "verbose"}, clear=False):
-            self.assertEqual(ask_codex._stream_mode(), "off")
-
-
-class MirrorDiagnosticTests(unittest.TestCase):
-    def _capture_stdout(self, level, message, stream_mode):
-        captured = []
-        with patch.object(ask_codex.sys, "stdout") as mock_stdout:
-            mock_stdout.write = lambda s: captured.append(s) or len(s)
-            mock_stdout.flush = lambda: None
-            ask_codex._mirror_to_monitor(level, message, stream_mode)
-        return "".join(captured)
-
-    def test_off_mode_emits_nothing(self):
-        self.assertEqual(self._capture_stdout("error", "boom", "off"), "")
-
-    def test_monitor_mode_emits_compact_line(self):
-        out = self._capture_stdout("error", "resume failed: thread expired", "monitor")
-        self.assertIn(">> error: resume failed: thread expired", out)
-
-    def test_long_message_is_truncated(self):
-        long = "A" * 500
-        out = self._capture_stdout("warning", long, "monitor")
-        self.assertLessEqual(len(out.rstrip()), len(">> warning: ") + 200 + 1)
-
-    def test_multiline_squashed_to_one_line(self):
-        out = self._capture_stdout("error", "line1\nline2\nline3", "monitor")
-        # Exactly one newline at the end from print(), not from the message.
-        self.assertEqual(out.count("\n"), 1)
-        self.assertIn("line1 line2 line3", out)
-
-
 class ProjectRootCacheTests(unittest.TestCase):
+    """Guard the @lru_cache on _project_root so we don't regress back to
+    4-5 git rev-parse calls per invocation."""
+
     def setUp(self):
         ask_codex._project_root.cache_clear()
 
@@ -381,347 +328,6 @@ class ProjectRootCacheTests(unittest.TestCase):
             for _ in range(5):
                 ask_codex._project_root()
         self.assertEqual(calls["count"], 1, "expected exactly one git rev-parse")
-
-
-class ProgressLineTests(unittest.TestCase):
-    def test_thread_started_truncated_id(self):
-        line = ask_codex._event_to_progress_line({
-            "type": "thread.started",
-            "thread_id": "019da6a4-55a3-72f1-849c-bdded4782a3b",
-        })
-        self.assertTrue(line.startswith(">> thread:"))
-        self.assertIn("019da6a4", line)
-        self.assertIn("…", line)
-
-    def test_turn_started(self):
-        self.assertEqual(
-            ask_codex._event_to_progress_line({"type": "turn.started"}),
-            ">> turn started",
-        )
-
-    def test_turn_completed_with_usage(self):
-        line = ask_codex._event_to_progress_line({
-            "type": "turn.completed",
-            "usage": {"input_tokens": 100, "cached_input_tokens": 50, "output_tokens": 12},
-        })
-        self.assertEqual(line, ">> turn done: in=100 cached=50 out=12")
-
-    def test_item_started_command_truncates_long_command(self):
-        long_cmd = "/bin/zsh -lc " + ("X" * 200)
-        line = ask_codex._event_to_progress_line({
-            "type": "item.started",
-            "item": {"type": "command_execution", "command": long_cmd},
-        })
-        self.assertTrue(line.startswith(">> tool: "))
-        self.assertTrue(line.endswith("..."))
-        self.assertLessEqual(len(line), len(">> tool: ") + 80)
-
-    def test_item_completed_command(self):
-        line = ask_codex._event_to_progress_line({
-            "type": "item.completed",
-            "item": {"type": "command_execution", "exit_code": 0, "aggregated_output": "hello world"},
-        })
-        self.assertEqual(line, ">> tool done: exit=0 output=11 bytes")
-
-    def test_item_completed_agent_message(self):
-        line = ask_codex._event_to_progress_line({
-            "type": "item.completed",
-            "item": {"type": "agent_message", "text": "Hello!"},
-        })
-        self.assertEqual(line, ">> agent message ready (6 chars)")
-
-    def test_unknown_type_returns_none(self):
-        self.assertIsNone(ask_codex._event_to_progress_line({"type": "totally.unknown"}))
-
-
-class GCSidecarTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.sidecar_dir = os.path.join(self.tmp.name, "lastmsg")
-        os.makedirs(self.sidecar_dir, exist_ok=True)
-        self.patcher = patch.object(ask_codex, "SIDECAR_DIR", self.sidecar_dir)
-        self.patcher.start()
-        self.addCleanup(self.patcher.stop)
-
-    def test_removes_old_files_keeps_new(self):
-        old = os.path.join(self.sidecar_dir, "old.txt")
-        new = os.path.join(self.sidecar_dir, "new.txt")
-        with open(old, "w") as f:
-            f.write("old")
-        with open(new, "w") as f:
-            f.write("new")
-        # Backdate old file beyond threshold.
-        past = time.time() - (ask_codex.SIDECAR_MAX_AGE_SECS + 60)
-        os.utime(old, (past, past))
-        ask_codex._gc_old_sidecars()
-        self.assertFalse(os.path.exists(old))
-        self.assertTrue(os.path.exists(new))
-
-    def test_missing_dir_is_noop(self):
-        # Point at a non-existent directory.
-        with patch.object(ask_codex, "SIDECAR_DIR", os.path.join(self.tmp.name, "nope")):
-            ask_codex._gc_old_sidecars()  # must not raise
-
-
-class FinalizeTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.sidecar_dir = os.path.join(self.tmp.name, "lastmsg")
-        self.patcher = patch.object(ask_codex, "SIDECAR_DIR", self.sidecar_dir)
-        self.patcher.start()
-        self.addCleanup(self.patcher.stop)
-
-    def test_default_mode_returns_message(self):
-        result = ask_codex._finalize("the answer", stream_mode="off", sidecar_path=None)
-        self.assertEqual(result, "the answer")
-
-    def test_monitor_mode_writes_sidecar_and_returns_empty(self):
-        import time as _t
-        sidecar = os.path.join(self.sidecar_dir, f"{os.getpid()}-{_t.time()}.txt")
-        captured_stdout = []
-        with patch.object(ask_codex.sys, "stdout") as mock_stdout:
-            mock_stdout.write = lambda s: captured_stdout.append(s) or len(s)
-            mock_stdout.flush = lambda: None
-            result = ask_codex._finalize("monitor answer", stream_mode="monitor", sidecar_path=sidecar)
-        self.assertEqual(result, "")
-        self.assertTrue(os.path.exists(sidecar))
-        with open(sidecar) as f:
-            self.assertEqual(f.read(), "monitor answer")
-        # Sentinel line was printed.
-        joined = "".join(captured_stdout)
-        self.assertIn(">> final-message:", joined)
-        self.assertIn(sidecar, joined)
-
-
-class StreamDriverTests(unittest.TestCase):
-    """_run_codex_stream_async exercised against real python3 subprocesses.
-
-    Rather than mock asyncio's subprocess transport (which requires real
-    file descriptors), these tests invoke tiny python3 programs that
-    emit scripted stdout/stderr, which is exactly what the real driver
-    consumes. Fast (~0.1s each) and exercises real async I/O paths.
-    """
-
-    def _run_with_child(self, child_code, stream_mode="off"):
-        """Spawn `python3 -c child_code` through the async driver."""
-        captured_stdout = []
-        with patch.object(ask_codex.sys, "stdout") as mock_stdout:
-            mock_stdout.write = lambda s: captured_stdout.append(s) or len(s)
-            mock_stdout.flush = lambda: None
-            result = asyncio.run(ask_codex._run_codex_stream_async(
-                [sys.executable, "-c", child_code],
-                "",
-                stream_mode=stream_mode,
-            ))
-        return result, "".join(captured_stdout)
-
-    def test_default_mode_does_not_emit_progress(self):
-        child = (
-            "import sys\n"
-            "for line in [\n"
-            '    \'{"type": "thread.started", "thread_id": "abc"}\',\n'
-            '    \'{"type": "turn.started"}\',\n'
-            '    \'{"type": "item.completed", "item": {"type": "agent_message", "text": "ok"}}\',\n'
-            '    \'{"type": "turn.completed", "usage": {"input_tokens": 1, "cached_input_tokens": 0, "output_tokens": 1}}\',\n'
-            "]:\n"
-            "    print(line, flush=True)\n"
-        )
-        result, stdout_captured = self._run_with_child(child, stream_mode="off")
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("thread.started", result.stdout)
-        self.assertIn("agent_message", result.stdout)
-        self.assertNotIn(">>", stdout_captured)
-
-    def test_monitor_mode_emits_compact_progress(self):
-        child = (
-            "import sys\n"
-            "for line in [\n"
-            '    \'{"type": "thread.started", "thread_id": "abcdef0123456789"}\',\n'
-            '    \'{"type": "turn.started"}\',\n'
-            '    \'{"type": "item.started", "item": {"type": "command_execution", "command": "/bin/zsh -lc ls"}}\',\n'
-            '    \'{"type": "item.completed", "item": {"type": "command_execution", "exit_code": 0, "aggregated_output": "a\\\\nb\\\\nc"}}\',\n'
-            '    \'{"type": "item.completed", "item": {"type": "agent_message", "text": "done"}}\',\n'
-            '    \'{"type": "turn.completed", "usage": {"input_tokens": 10, "cached_input_tokens": 2, "output_tokens": 1}}\',\n'
-            "]:\n"
-            "    print(line, flush=True)\n"
-        )
-        result, stdout_captured = self._run_with_child(child, stream_mode="monitor")
-        self.assertEqual(result.returncode, 0)
-        self.assertIn(">> thread: abcdef01", stdout_captured)
-        self.assertIn(">> turn started", stdout_captured)
-        self.assertIn(">> tool: /bin/zsh -lc ls", stdout_captured)
-        self.assertIn(">> tool done: exit=0 output=5 bytes", stdout_captured)
-        self.assertIn(">> agent message ready (4 chars)", stdout_captured)
-        self.assertIn(">> turn done: in=10 cached=2 out=1", stdout_captured)
-
-    def test_malformed_json_line_skipped_not_raised(self):
-        child = (
-            "import sys\n"
-            "print('not json', flush=True)\n"
-            '''print('{"type": "item.completed", "item": {"type": "agent_message", "text": "done"}}', flush=True)\n'''
-        )
-        result, stdout_captured = self._run_with_child(child, stream_mode="monitor")
-        self.assertEqual(result.returncode, 0)
-        self.assertIn(">> agent message ready (4 chars)", stdout_captured)
-
-    def test_nonzero_returncode_surfaced(self):
-        child = (
-            "import sys\n"
-            "sys.stderr.write('boom\\n')\n"
-            "sys.stderr.flush()\n"
-            "sys.exit(1)\n"
-        )
-        result, _ = self._run_with_child(child, stream_mode="off")
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("boom", result.stderr)
-
-    def test_concurrent_stdout_stderr_do_not_deadlock(self):
-        """Heavy stderr alongside stdout should not hang."""
-        child = (
-            "import sys\n"
-            "for i in range(200):\n"
-            "    sys.stderr.write('E' * 200 + '\\n')\n"
-            "    sys.stderr.flush()\n"
-            "for i in range(5):\n"
-            '    print(\'{"type":"turn.started"}\', flush=True)\n'
-        )
-        result, stdout_captured = self._run_with_child(child, stream_mode="monitor")
-        self.assertEqual(result.returncode, 0)
-        # Five turn.started events should each produce a progress line.
-        self.assertEqual(stdout_captured.count(">> turn started"), 5)
-        self.assertGreater(len(result.stderr), 1000)
-
-
-class DetachWatchCollectTests(unittest.TestCase):
-    """Detach mode spawns a detached subprocess and writes a manifest;
-    watch/collect read the manifest and produce output. Tests avoid
-    invoking real codex by substituting python3 -c child scripts that
-    mimic codex's JSONL output to files.
-    """
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.state_patcher = patch.object(ask_codex, "STATE_DIR", self.tmp.name)
-        self.jobs_patcher = patch.object(ask_codex, "JOBS_DIR", os.path.join(self.tmp.name, "jobs"))
-        self.state_patcher.start()
-        self.jobs_patcher.start()
-        self.addCleanup(self.state_patcher.stop)
-        self.addCleanup(self.jobs_patcher.stop)
-
-    def _make_job(self, pid, sidecar_content=None, err_content=None, log_content=None):
-        job_id = ask_codex._new_job_id()
-        job_dir = ask_codex._job_dir(job_id)
-        os.makedirs(job_dir, exist_ok=True)
-        sidecar_path = os.path.join(job_dir, "lastmsg.txt")
-        err_path = os.path.join(job_dir, "err.log")
-        log_path = os.path.join(job_dir, "log.jsonl")
-        prompt_path = os.path.join(job_dir, "prompt.txt")
-        with open(prompt_path, "w") as f:
-            f.write("")
-        with open(err_path, "w") as f:
-            f.write(err_content or "")
-        with open(log_path, "w") as f:
-            f.write(log_content or "")
-        if sidecar_content is not None:
-            with open(sidecar_path, "w") as f:
-                f.write(sidecar_content)
-        manifest = {
-            "job_id": job_id,
-            "pid": pid,
-            "cmd": ["codex", "exec"],
-            "prompt_path": prompt_path,
-            "log_path": log_path,
-            "err_path": err_path,
-            "sidecar_path": sidecar_path,
-            "project_path": "/x",
-            "started_at": "2026-04-19T00:00:00Z",
-        }
-        with open(os.path.join(job_dir, "manifest.json"), "w") as f:
-            json.dump(manifest, f)
-        return job_id, manifest
-
-    def test_collect_prints_sidecar_content(self):
-        import json as _json
-        # Use a PID that cannot be alive (1 is init; kill(1,0) may succeed,
-        # but we still produce content so we return before the alive check).
-        job_id, _ = self._make_job(pid=99999999, sidecar_content="the answer\n")
-        captured = []
-        with patch.object(ask_codex.sys, "stdout") as mock_stdout:
-            mock_stdout.write = lambda s: captured.append(s) or len(s)
-            mock_stdout.flush = lambda: None
-            ask_codex._collect_job(job_id)
-        self.assertIn("the answer", "".join(captured))
-
-    def test_collect_errors_when_job_missing(self):
-        with self.assertRaises(SystemExit) as cm:
-            ask_codex._collect_job("nonexistent-job")
-        self.assertEqual(cm.exception.code, 1)
-
-    def test_collect_errors_when_job_running_with_empty_sidecar(self):
-        import os as _os
-        job_id, manifest = self._make_job(pid=_os.getpid(), sidecar_content="")
-        # Our own pid is alive; sidecar is empty → "still running" error
-        with self.assertRaises(SystemExit) as cm:
-            ask_codex._collect_job(job_id)
-        self.assertEqual(cm.exception.code, 1)
-
-    def test_pid_alive_self(self):
-        self.assertTrue(ask_codex._pid_alive(os.getpid()))
-
-    def test_pid_alive_bogus_returns_false(self):
-        # 99999999 virtually certainly doesn't exist.
-        self.assertFalse(ask_codex._pid_alive(99999999))
-
-    def test_new_job_id_is_unique(self):
-        ids = {ask_codex._new_job_id() for _ in range(10)}
-        self.assertEqual(len(ids), 10)
-
-
-class DetachSpawnAndWatchIntegrationTests(unittest.TestCase):
-    """Real subprocess detach + real file-based watch, using python3 as the
-    'codex' child so we don't need the real codex CLI for these tests."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.state_patcher = patch.object(ask_codex, "STATE_DIR", self.tmp.name)
-        self.jobs_patcher = patch.object(ask_codex, "JOBS_DIR", os.path.join(self.tmp.name, "jobs"))
-        self.state_patcher.start()
-        self.jobs_patcher.start()
-        self.addCleanup(self.state_patcher.stop)
-        self.addCleanup(self.jobs_patcher.stop)
-
-    def test_spawn_detached_child_writes_expected_files(self):
-        import os as _os
-        job_dir = os.path.join(self.tmp.name, "jobs", "test-job")
-        os.makedirs(job_dir, exist_ok=True)
-        prompt_path = os.path.join(job_dir, "prompt.txt")
-        log_path = os.path.join(job_dir, "log.jsonl")
-        err_path = os.path.join(job_dir, "err.log")
-        with open(prompt_path, "w") as f:
-            f.write("ignored\n")
-
-        child = (
-            "import sys, time\n"
-            "sys.stdin.read()\n"
-            "for msg in ['ev1', 'ev2']:\n"
-            "    print(msg, flush=True)\n"
-            "    time.sleep(0.05)\n"
-        )
-        pid = ask_codex._spawn_codex_detached(
-            [sys.executable, "-c", child],
-            prompt_path, log_path, err_path,
-        )
-        self.assertGreater(pid, 0)
-        # Wait for the child to finish writing
-        _os.waitpid(pid, 0)
-        with open(log_path) as f:
-            contents = f.read()
-        self.assertIn("ev1", contents)
-        self.assertIn("ev2", contents)
 
 
 if __name__ == "__main__":

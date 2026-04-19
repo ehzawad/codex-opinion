@@ -27,67 +27,9 @@ These principles hold across every invocation regardless of task. Human, Claude,
 
 Include a brief marker of this philosophy in your first briefing per project so Codex's framing inherits it. Restate it if any participant drifts (sycophancy creep, hand-wavy certainty, rushed conclusions, unverified claims).
 
-## Invocation
+## Script
 
-Pure transport. Whatever you pipe to stdin is exactly what Codex sees — no default framing, no templates.
-
-Codex runs can take minutes to hours. The default invocation makes its progress visible to the human live; the silent fallback exists only for trivial or debugging calls.
-
-Three invocation shapes, picked by expected run length:
-
-**Short runs, in-Monitor (< 1h): `CODEX_OPINION_STREAM=monitor`.**
-
-Synchronous. Claude Code's Monitor tool streams compact progress lines (`>> tool: …`, `>> tool done: …`, `>> agent message ready`, `>> turn done: …`) as notifications while Codex works. Errors and stale-session recoveries surface as `>> error: …` / `>> warning: …`. Final message via sidecar at `$STATE_DIR/lastmsg/{pid}.txt`; `Read` it after Monitor completes.
-
-```
-Monitor({
-  command:     "bash -lc '<your briefing> | CODEX_OPINION_STREAM=monitor python3 \"$CLAUDE_PLUGIN_ROOT/skills/codex-opinion/scripts/ask_codex.py\"'",
-  description: "Codex: <short task label>",
-  timeout_ms:  3600000,
-  persistent:  true,
-})
-```
-
-`CODEX_OPINION_STREAM=monitor` must sit on the python3 command (right of the pipe), not left — otherwise it applies to the briefing-producing command and the script falls through to silent default mode.
-
-Monitor's `timeout_ms` caps at 3600000ms (1h); Codex continues running up to that ceiling and dies with the subprocess when Monitor expires. Use the detach shape below for anything that might exceed an hour.
-
-**Long runs (hours to weeks): detach + watch + collect.**
-
-The script has no time limit. For runs that may outlive any Claude Code tool invocation, use three calls:
-
-1. `CODEX_OPINION_STREAM=detach` spawns Codex fully detached — its own session, stdin/stdout/stderr redirected to files under `$STATE_DIR/jobs/<job-id>/`. The script exits immediately with `>> job-id: <id>`, `>> job-dir: …`, `>> pid: …`, `>> log: …`, `>> sidecar: …`. Codex keeps running after Claude Code's tool call ends; it survives Monitor expiry, Claude Code session close, even laptop sleep if the OS keeps the process alive.
-
-   ```
-   bash -lc '<your briefing> | CODEX_OPINION_STREAM=detach python3 "$CLAUDE_PLUGIN_ROOT/skills/codex-opinion/scripts/ask_codex.py"'
-   ```
-
-   Capture the `>> job-id:` value from stdout and record it in the conversation so you can pass it to `watch` / `collect` later (possibly in a future Claude Code session).
-
-2. `CODEX_OPINION_STREAM=watch` + `CODEX_OPINION_JOB_ID=<id>` tails the job's log and emits compact progress lines. Re-invocable across Monitor expiries — watch runs as a separate process from Codex, so killing watch doesn't affect Codex. When the job ends, watch emits `>> final-message: <path>`.
-
-   ```
-   Monitor({
-     command:     "bash -lc 'CODEX_OPINION_STREAM=watch CODEX_OPINION_JOB_ID=<id> python3 \"$CLAUDE_PLUGIN_ROOT/skills/codex-opinion/scripts/ask_codex.py\"'",
-     description: "Watch Codex job <id>",
-     timeout_ms:  3600000,
-     persistent:  true,
-   })
-   ```
-
-3. `CODEX_OPINION_STREAM=collect` + `CODEX_OPINION_JOB_ID=<id>` prints the job's final agent_message on stdout. Use this once watch has reported `>> final-message:` (or directly, if you're willing to poll).
-
-   ```bash
-   CODEX_OPINION_STREAM=collect CODEX_OPINION_JOB_ID=<id> python3 "$CLAUDE_PLUGIN_ROOT/skills/codex-opinion/scripts/ask_codex.py"
-   ```
-
-Detached jobs do not touch the project's session state — each detach is a fresh Codex thread regardless of what's in the project session file. `CODEX_OPINION_SESSION_KEY` is recorded in the job's manifest for debugging only; it does not cause detach to resume any prior thread. Cross-job continuity (chained multi-turn reconciliation across separate detaches) is not implemented. Detach is for fire-and-forget long single runs; use `off` or `monitor` mode when you need continuity.
-
-Progress lines are the progress, not the answer. Reconcile using the final-message file, never any intermediate `>> agent message ready` notification.
-
-**Shortest path — Bash foreground (silent until completion):**
-
-For known-short calls or debugging where live visibility isn't needed. Returns the final agent_message on stdout; the human sees nothing during the run.
+Pure transport. Whatever you pipe to stdin is exactly what Codex sees — no default framing, no templates. Call it with your composed briefing on stdin:
 
 ```bash
 <your briefing> | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py
@@ -118,8 +60,6 @@ If the audit finds something and you materially revise in response, a closing ch
 Keep the cycle bounded: initial briefing, audit when the draft adds material new judgment or synthesis, closing check when the audit materially changes the answer. This is not iterate-to-agreement. If the closing check surfaces a blocker, do not quietly resolve it and present the answer as stabilized; surface the blocker to the human or ask a concrete question.
 
 ## Session state
-
-*Applies to `off` and `monitor` (sync) modes.* Detach jobs have separate per-job manifests under `$STATE_DIR/jobs/<job-id>/` and do not share the per-project thread.
 
 One Codex thread per project at `$XDG_STATE_HOME/codex-opinion/{hash}.json` (default `~/.local/state/codex-opinion/`). Known stale-session errors (`no rollout found`, `thread not found`, `session expired`, and variants) trigger an automatic fresh start. Other failures — auth, network, config, or a clean exit with no agent message — exit non-zero with diagnostics. The script does not silently re-run; Codex has full filesystem access and prompts may be non-idempotent.
 
