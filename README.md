@@ -129,9 +129,13 @@ claude plugins install codex-opinion@codex-opinion       # skip if already insta
 # restart Claude Code once
 ```
 
-`scripts/dev-link.sh` replaces the installed version's cache directory (`~/.claude/plugins/cache/codex-opinion/codex-opinion/<version>/`) with a symlink to your working tree. Symlinks inside the plugin cache resolve to their target at runtime.
+`scripts/dev-link.sh` does two things:
+1. Creates a symlink at `~/.claude/plugins/cache/codex-opinion/codex-opinion/<version>/` → this repo's working tree, so edits are live at runtime.
+2. Rewrites `~/.claude/plugins/installed_plugins.json` so the harness's `installPath` and `version` fields point at the symlinked version.
 
-**Dev-loop troubleshooting.** Claude Code's `~/.claude/plugins/installed_plugins.json` is the authoritative manifest: each plugin entry names the `installPath` and `version` the harness actually loads. A symlink to a newer version number (1.5.0) is ignored unless the manifest points at it. After bumping `plugin.json`, either run `claude plugins update` to refresh the manifest, or symlink the specific version directory the manifest expects. If you see `/Users/…/cache/codex-opinion/codex-opinion/<old-version>/…` in loaded paths after your dev-link, the manifest is still pinned — update it.
+Step 2 is load-bearing: the harness loads whichever `installPath` the manifest declares, **not** whichever symlinks exist in the cache. Without the manifest rewrite, bumping the version in `plugin.json` and re-running dev-link creates a new symlink that the harness will happily ignore. This is the "I edited files but Claude Code is still loading the old version" trap — dev-link.sh now fixes it automatically every run.
+
+Re-run `scripts/dev-link.sh` after any version bump in `plugin.json`, any `claude plugins update`, or any cache wipe. Restart Claude Code once so the session rebinds.
 
 After the one-time restart, edits to `plugins/codex-opinion/**` are live on the next `/codex-opinion:codex-opinion` invocation. **SKILL.md caveat:** the Claude Code harness's skill-content caching behavior is not documented, so `SKILL.md` edits may still require a session restart; the script and the rest of the plugin files update live.
 
