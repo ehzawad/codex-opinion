@@ -4,9 +4,9 @@ Implementation details for contributors and maintainers. User-facing docs live i
 
 ## Protocol vs transport boundary
 
-Reconciliation protocol (when to call Codex, how to frame the briefing, when to audit the reconciled draft, when to run a terminal revision check) lives in [`SKILL.md`](plugins/codex-opinion/skills/codex-opinion/SKILL.md) and Claude's judgment at runtime. [`ask_codex.py`](plugins/codex-opinion/skills/codex-opinion/scripts/ask_codex.py) intentionally remains prompt transport only: stdin in, Codex call, reply out, per-project session state saved atomically.
+Reconciliation protocol (when to call Codex, how to frame the briefing, when to audit the reconciled draft, when to run a closing revision check) lives in [`SKILL.md`](plugins/codex-opinion/skills/codex-opinion/SKILL.md) and Claude's judgment at runtime. [`ask_codex.py`](plugins/codex-opinion/skills/codex-opinion/scripts/ask_codex.py) intentionally remains prompt transport only: stdin in, Codex call, reply out, per-project session state saved atomically.
 
-Multi-round behavior — initial briefing, audit call, terminal revision check — is produced by Claude invoking the same script multiple times on the resumed Codex thread with explicit per-call briefings. The script does not count rounds, detect cycle boundaries, or parse Codex's response. Adding protocol state to the script would mix transport with judgment and create edge cases around timeouts, idempotency, concurrent invocations, and what counts as "stable."
+Multi-round behavior — initial briefing, audit call, closing revision check — is produced by Claude invoking the same script multiple times on the resumed Codex thread with explicit per-call briefings. The script does not count rounds, detect cycle boundaries, or parse Codex's response. Adding protocol state to the script would mix transport with judgment and create edge cases around timeouts, idempotency, concurrent invocations, and what counts as "stable."
 
 If you want protocol enforcement in Python rather than skill-level discipline, that is a different project shape than this repo — a protocol engine, not a transport shim.
 

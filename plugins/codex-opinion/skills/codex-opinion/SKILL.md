@@ -48,11 +48,13 @@ When Codex replies, reconcile rather than relay. Agreements build confidence; di
 
 codex-opinion is single-round by default. Before finalizing, check whether your reconciliation added material judgment or synthesis Codex never saw: a recommendation, priority, severity call, go/no-go decision, bridging claim, changed confidence level, invented path, or resolved concern. If it did, use an audit call to test that added material for wrong, missing, incomplete, or unverified assumptions. If it did not, one round is enough.
 
+Because this decision is self-judged, treat uncertainty about whether you added material judgment as a reason to audit, especially when turning Codex's findings into a recommendation, priority, severity, confidence change, or go/no-go answer.
+
 An audit call should include the draft itself, name the specific new or changed claims, and keep the ask narrow: not a rewrite, not polish, not consensus.
 
-If the audit finds something and you materially revise in response, a terminal check lets Codex see the revision before you finalize. Include the revised answer, the audit findings and how you handled them, and what changed. Ask Codex to look only for blockers introduced by the revision itself: new material claims, lost uncertainty, or misapplied audit findings that would make the answer misleading, unsupported, or materially incomplete.
+If the audit finds something and you materially revise in response, a closing check lets Codex see the revision before you finalize. Include the revised answer, the audit findings and how you handled them, and what changed. Ask Codex to look only for blockers introduced by the revision itself: new material claims, lost uncertainty, or misapplied audit findings that would make the answer misleading, unsupported, or materially incomplete.
 
-Keep the cycle bounded: initial briefing, audit when the draft adds material new synthesis, terminal check when the audit materially changes the answer. This is not iterate-to-agreement. If the terminal check surfaces a blocker, do not quietly resolve it and present the answer as stabilized; surface the blocker to the human or ask a concrete question.
+Keep the cycle bounded: initial briefing, audit when the draft adds material new judgment or synthesis, closing check when the audit materially changes the answer. This is not iterate-to-agreement. If the closing check surfaces a blocker, do not quietly resolve it and present the answer as stabilized; surface the blocker to the human or ask a concrete question.
 
 ## Session state
 
