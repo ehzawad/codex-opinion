@@ -11,7 +11,6 @@ blank-line separator, as a convenience for direct CLI use. Most Claude
 Code invocations should leave it empty and bake any framing into stdin.
 
 Usage:
-    git diff HEAD | python3 ask_codex.py
     echo "<full prompt with framing>" | python3 ask_codex.py
     echo "<context>" | python3 ask_codex.py "Optional prefix line"
 """
@@ -151,11 +150,9 @@ def _is_stale_resume_error(stderr_text):
 def _run_codex_proc(cmd, prompt):
     """Invoke a codex subprocess and capture its output.
 
-    Intentionally has no timeout: codex exec sessions legitimately run for
-    an hour on deep reviews. Real failures surface via non-zero exit or a
-    clean exit with no agent_message, both handled by the caller. Outer
-    harness layers (Claude Code Bash/Monitor timeouts, direct-shell Ctrl+C)
-    bound runaway cases.
+    Intentionally has no timeout: codex exec sessions can run without a
+    hard time limit. Real failures surface via non-zero exit or a clean
+    exit with no agent_message, both handled by the caller.
     """
     return subprocess.run(
         cmd, input=prompt, capture_output=True, text=True,

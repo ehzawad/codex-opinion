@@ -1,6 +1,6 @@
 ---
 name: codex-opinion
-description: Three-brain collaboration with OpenAI Codex (human + Claude + Codex) on any task. Claude briefs Codex; they reconcile to catch wrong/missing assumptions. Invoke /codex-opinion:codex-opinion, or naturally via phrases like "ask codex," "second opinion," "another perspective," "sanity-check this," "codex weigh in," "reconcile with codex."
+description: Three-brain collaboration with OpenAI Codex (human + Claude + Codex) that adapts in the moment to whatever you're doing. Claude reconciles Codex's take with the work at hand. Invoke /codex-opinion:codex-opinion, or naturally via phrases like "ask codex," "second opinion," "another perspective," "codex weigh in," "reconcile with codex."
 argument-hint: [usually empty — compose the briefing into stdin]
 ---
 
@@ -8,7 +8,7 @@ argument-hint: [usually empty — compose the briefing into stdin]
 
 Codex runs in its own process with full filesystem access. Its working root is the current project — resolved at each invocation from the cwd's git root (or the cwd itself if not in a repo), which is whatever project the user is working in right now. This plugin is not tied to any specific codebase; it works inside any Claude Code project.
 
-Each invocation is a three-way collaboration — human, Claude, Codex. Codex is a collaborator, critic, or reviewer depending on the task. Your job is to brief Codex on the current moment, get its take, and reconcile — not forward and relay.
+Each invocation is a three-way collaboration — human, Claude, Codex. Your job is to brief Codex on the current moment, get its take, and reconcile — not forward and relay.
 
 Codex cannot see Claude-only state: this conversation's history, transient command output, browser/tool state, external docs, user constraints you inferred from memory. If it's material, brief it. Files in the current project and anything Codex can produce by running commands — leave for Codex to fetch directly.
 
@@ -24,7 +24,7 @@ These principles hold across every invocation regardless of task. Human, Claude,
 - **Don't be sycophantic.** Three brains agreeing by default is three brains pretending to be one. Surface disagreement with evidence, not politeness.
 - **Wrong, incomplete, and missing assumptions are the origin of bugs and misalignments.** Reconciliation's main job is to surface them — in Claude's briefing, Codex's reply, the user's framing, or prior memory and decisions.
 
-Include a brief marker of this philosophy in your first briefing per project so Codex's role-setting inherits it. Restate it if any brain drifts (sycophancy creep, hand-wavy certainty, rushed conclusions, unverified claims).
+Include a brief marker of this philosophy in your first briefing per project so Codex's framing inherits it. Restate it if any brain drifts (sycophancy creep, hand-wavy certainty, rushed conclusions, unverified claims).
 
 ## Script
 
@@ -34,7 +34,7 @@ Pure transport. Whatever you pipe to stdin is exactly what Codex sees — no def
 <your briefing> | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py
 ```
 
-First call per project establishes Codex's role; later calls resume the same thread, so Codex keeps accumulated project knowledge. **Reframe explicitly when the task shifts** (debug → plan → design → review → ...). Prior framing biases later answers if left unchecked. If the thread has drifted beyond what a reframe can steer, delete the state file (details in Session state).
+First call per project establishes Codex's framing; later calls resume the same thread, so Codex keeps accumulated project knowledge. **Reframe explicitly when the task shifts** — prior framing biases later answers if left unchecked. If the thread has drifted beyond what a reframe can steer, delete the state file (details in Session state).
 
 ## Briefing and reconciliation
 
@@ -43,6 +43,8 @@ Use this as a lens, not a form — don't mechanically fill headings; include onl
 When the material is in the current project, prefer pointing Codex at paths or commands over pasting bulk content — unless the exact text, error, or diff *is* the evidence. If uncommitted changes are material, inline `git diff HEAD` so Codex starts from a shared view of the working state.
 
 When Codex replies, reconcile rather than relay. Agreements build confidence; disagreements need verification in code, docs, or commands (one of you is wrong). Fold in points Codex surfaced that you missed; correct assumptions Codex made that you know are wrong (e.g., from prior user decisions captured in memory) rather than silently accept them; surface points where the user needs to decide between your take and Codex's, don't paper over. Hand the user the reconciled output, not a summary of one brain.
+
+Show the reasoning path when handing the reconciled output to the user. Surface the material why: which Codex points you accepted or challenged, what evidence or verification shifted the answer, why an audit was or was not needed, and where the user's framing constrained the decision. If uncertainty remains, say so.
 
 ### Audit your draft before finalizing
 

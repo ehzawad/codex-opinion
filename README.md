@@ -30,7 +30,6 @@ Add a directive in the same turn to steer the collaboration:
 
 ```
 /codex-opinion:codex-opinion focus on migration risks
-/codex-opinion:codex-opinion sanity-check this plan before I touch code
 ```
 
 Claude Code also triggers the skill automatically when you ask in natural language — no slash command needed:
@@ -39,7 +38,6 @@ Claude Code also triggers the skill automatically when you ask in natural langua
 ask codex what it thinks
 get a second opinion on this approach
 have codex weigh in
-sanity-check this before I start
 another perspective on the trade-off
 reconcile with codex
 ```
@@ -89,7 +87,7 @@ Codex runs with `--dangerously-bypass-approvals-and-sandbox` — no approval pro
 
 The script uses your Codex CLI defaults — model, reasoning effort, and other settings come from `~/.codex/config.toml`. No model is hardcoded. Sandbox and approval settings are overridden by the plugin (see Security above).
 
-No subprocess timeout is enforced. Codex sessions legitimately run for an hour on deep analyses, and real failures already surface via non-zero exit or a clean exit with no agent message (both handled). Runaway cases are bounded by outer layers — the Claude Code Bash/Monitor timeouts when invoked through Claude, or Ctrl+C in a direct shell.
+No subprocess timeout is enforced. Real failures surface via non-zero exit or a clean exit with no agent message (both handled).
 
 ## For development
 
