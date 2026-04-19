@@ -35,6 +35,8 @@ Pure transport. Whatever you pipe to stdin is exactly what Codex sees — no def
 <your briefing> | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py
 ```
 
+A Codex call takes as long as the work takes; use Bash `run_in_background: true` and wait for Claude Code's completion notification instead of sleep-polling.
+
 First call per project establishes Codex's framing; later calls resume the same thread, so Codex keeps accumulated project knowledge. **Reframe explicitly when the task shifts** — prior framing biases later answers if left unchecked. If the thread has drifted beyond what a reframe can steer, delete the state file (details in Session state).
 
 ## Briefing and reconciliation
