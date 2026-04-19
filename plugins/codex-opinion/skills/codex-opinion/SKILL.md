@@ -49,7 +49,7 @@ Show the reasoning path when handing the reconciled output to the user. Surface 
 
 ### Audit your draft before finalizing
 
-codex-opinion is single-round by default. Before finalizing, check whether your reconciliation added material judgment or synthesis Codex never saw: a recommendation, priority, severity call, go/no-go decision, bridging claim, changed confidence level, invented path, or resolved concern. If it did, use an audit call to test that added material for wrong, missing, incomplete, or unverified assumptions. If it did not, one round is enough.
+Prioritize single-round. Audit is the exception, and a closing check only follows when the audit materially changes the answer. Before finalizing, check whether your reconciliation added material judgment or synthesis Codex never saw: a recommendation, priority, severity call, go/no-go decision, bridging claim, changed confidence level, invented path, or resolved concern. If it did, use an audit call to test that added material for wrong, missing, incomplete, or unverified assumptions. If it did not, one round is enough.
 
 Because this decision is self-judged, treat uncertainty about whether you added material judgment as a reason to audit, especially when turning Codex's findings into a recommendation, priority, severity, confidence change, or go/no-go answer.
 
