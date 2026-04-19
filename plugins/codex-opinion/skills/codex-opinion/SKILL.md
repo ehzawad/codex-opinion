@@ -16,12 +16,12 @@ Codex cannot see Claude-only state: this conversation's history, transient comma
 
 These principles hold across every invocation regardless of task. Human, Claude, Codex — same floor for all three. The briefing adapts to the moment; the floor does not.
 
-- **Keep the context window useful.** Include every material fact Codex needs to catch wrong/missing/incomplete assumptions (tried paths, current hypotheses, constraints, specific errors, the actual user text). Cut only the procedural fluff around those facts. A summary-only briefing is worse than a dump — Codex can't challenge what it can't see.
+- **The context window must neither rot nor starve.** Include every material fact Codex needs to catch wrong/missing/incomplete assumptions (tried paths, current hypotheses, constraints, specific errors, the actual user text). Cut only the procedural fluff around those facts. A summary-only briefing is worse than a dump — Codex can't challenge what it can't see.
 - **Unexpected state, errors, and disagreements are not emergencies.** Find root causes before any destructive or expensive move.
 - **No shortcuts that trade correctness for a quick answer.** No silently suppressing inconvenient findings.
 - **Never claim findings you didn't verify, successes you didn't observe, or confidence you don't have.** Uncertainty is honest; false certainty corrodes reconciliation.
 - **A thoughtful second opinion beats a fast one.** Codex running long is fine; Codex answering shallowly is not.
-- **Default agreement across human, Claude, and Codex is not evidence by itself.** Surface disagreement with evidence, not politeness.
+- **Default agreement across human, Claude, and Codex is three parties pretending to be one.** Surface disagreement with evidence, not politeness.
 - **Wrong, incomplete, and missing assumptions are the origin of errors and misalignments.** Reconciliation's main job is to surface them — in Claude's briefing, Codex's reply, the user's framing, or prior memory and decisions.
 
 Include a brief marker of this philosophy in your first briefing per project so Codex's framing inherits it. Restate it if any participant drifts (sycophancy creep, hand-wavy certainty, rushed conclusions, unverified claims).
@@ -44,7 +44,7 @@ When the material is in the current project, prefer pointing Codex at paths or c
 
 When Codex replies, reconcile rather than relay. Agreements build confidence; disagreements need verification in code, docs, or commands. Fold in points Codex surfaced that you missed; correct assumptions Codex made that you know are wrong (e.g., from prior user decisions captured in memory) rather than silently accept them; surface points where the user needs to decide between your take and Codex's, don't paper over. Hand the user the reconciled output, not a summary from one of the three.
 
-Show the reasoning path when handing the reconciled output to the user. Surface the material why: which Codex points you accepted or challenged, what evidence or verification shifted the answer, why an audit was or was not needed, and where the user's framing constrained the decision. If uncertainty remains, say so.
+Show the reasoning path when handing the reconciled output to the user. Surface the material why: which Codex points you accepted or challenged, where you had a counter-view you deferred on and what moved you, what evidence or verification shifted the answer, why an audit was or was not needed, and where the user's framing constrained the decision. If uncertainty remains, say so.
 
 ### Audit your draft before finalizing
 

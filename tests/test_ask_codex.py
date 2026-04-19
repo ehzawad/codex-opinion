@@ -3,10 +3,9 @@
 Runs without the Codex CLI installed. Covers the pure helpers:
 key computation, state file I/O, JSONL parsing, stale-resume detection.
 
+Lives outside the plugin subtree so end-user installs don't bundle it.
 Run from repo root:
-    python3 -m unittest discover \
-        -s plugins/codex-opinion/skills/codex-opinion/scripts/tests \
-        -p 'test_*.py'
+    python3 -m unittest discover -s tests -p 'test_*.py'
 """
 
 import hashlib
@@ -16,7 +15,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-SCRIPTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+SCRIPTS_DIR = os.path.abspath(os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "plugins", "codex-opinion", "skills", "codex-opinion", "scripts",
+))
 sys.path.insert(0, SCRIPTS_DIR)
 
 import ask_codex  # noqa: E402
