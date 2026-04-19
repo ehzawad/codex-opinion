@@ -27,7 +27,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from functools import lru_cache
+from functools import cache
 
 STATE_DIR = os.path.join(
     os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
@@ -48,14 +48,15 @@ STALE_RESUME_MARKERS = (
 )
 
 
-@lru_cache(maxsize=1)
+@cache
 def _project_root():
     """Return the git repo root for the current dir, falling back to cwd.
 
     Cached because the script is one-shot and the result is referenced
     transitively from _project_key, _state_path, save_session, and
     run_codex. Without caching the sync `git rev-parse` runs 4-5 times
-    per invocation.
+    per invocation. The cache is unbounded by design — it only ever
+    holds the single zero-arg result for the lifetime of the process.
     """
     try:
         root = subprocess.run(
