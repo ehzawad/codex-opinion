@@ -42,10 +42,48 @@ sequenceDiagram
     X->>S: {"type": "thread.started", "thread_id": "UUID"}
     Note over S: Captures session ID
     X->>S: {"type": "turn.started"}
+    X->>S: {"type": "item.started", "item": {"type": "command_execution", ...}}
+    Note over S: In monitor mode, emits >> tool: ...
+    X->>S: {"type": "item.completed", "item": {"type": "command_execution", ...}}
+    Note over S: In monitor mode, emits >> tool done: ...
     X->>S: {"type": "item.completed", "item": {"type": "agent_message", "text": "..."}}
     Note over S: Captures last agent message
     X->>S: {"type": "turn.completed", "usage": {...}}
-    Note over S: Returns final message to Claude
+    Note over S: Writes final message to sidecar (monitor) or returns via stdout (default)
 ```
 
-`extract_session_id` parses `thread.started` events; `extract_final_message` captures the last `agent_message` from any `item.completed` event. If the Codex CLI JSONL format changes (new event shapes, renamed keys), update those two functions in [`plugins/codex-opinion/skills/codex-opinion/scripts/ask_codex.py`](plugins/codex-opinion/skills/codex-opinion/scripts/ask_codex.py).
+`extract_session_id` parses `thread.started` events; `extract_final_message` captures the last `agent_message` from any `item.completed` event. `_event_to_progress_line` translates events into compact `>> …` lines for monitor mode. If the Codex CLI JSONL format changes (new event shapes, renamed keys), update those three functions in [`plugins/codex-opinion/skills/codex-opinion/scripts/ask_codex.py`](plugins/codex-opinion/skills/codex-opinion/scripts/ask_codex.py).
+
+## Streaming architecture
+
+`_run_codex_stream_async` is the asyncio event-loop driver. It spawns `codex exec --json` via `asyncio.create_subprocess_exec` with the child in its own session (`os.setsid`) so SIGTERM/SIGKILL escalation targets the whole process group, and concurrently gathers three tasks:
+
+- `_feed_stdin` writes the prompt and closes stdin without blocking the loop.
+- `_drain_stdout` iterates the child's stdout line-by-line; in streaming mode each decoded line is parsed as JSON and, if it carries a progress signal, a compact `>> …` string is printed immediately to this script's own stdout (where Claude Code's `Monitor` tool picks it up).
+- `_drain_stderr` accumulates stderr so no buffer ever fills and deadlocks the child.
+
+```mermaid
+sequenceDiagram
+    participant C as Claude Code (Monitor)
+    participant S as ask_codex.py (async)
+    participant L as event loop
+    participant X as codex exec
+
+    C->>S: bash -lc 'CODEX_OPINION_STREAM=monitor … | ask_codex.py'
+    S->>L: asyncio.run(run_codex_async)
+    L->>X: create_subprocess_exec (own session)
+    par stdin
+        L->>X: prompt bytes
+    and stdout drain
+        X-->>L: JSONL event
+        L-->>S: _event_to_progress_line
+        S-->>C: >> ... (live notification)
+    and stderr drain
+        X-->>L: stderr chunk
+        L->>S: accumulate
+    end
+    Note over S: JSONL parsing and session save happen in the script; Claude Code never arbitrates transport correctness.
+    S-->>C: >> final-message: <sidecar path>
+```
+
+No timeout is enforced on the subprocess. No threads are used — concurrency is entirely `asyncio.gather`. Keyboard interrupts and exceptions cancel all in-flight tasks and escalate termination through `SIGTERM` → `SIGKILL` on the process group.

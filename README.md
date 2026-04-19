@@ -44,7 +44,7 @@ reconcile with codex
 
 ## How it works
 
-The script is a pure transport: it pipes whatever Claude Code writes to stdin straight into `codex exec` (or `codex exec resume` when a prior session exists). There is no built-in prompt, no templates, no auto-bundling. Claude Code composes the full briefing every call — adapted to the current task, phase, and recent turns. On the first call per project, Claude's briefing establishes Codex's framing; follow-up calls resume the same Codex thread so Codex carries accumulated project knowledge. Claude reframes explicitly when the task shifts so prior framing doesn't bias later turns.
+The script is a pure transport with an asyncio event-loop driver: it pipes whatever Claude Code writes to stdin straight into `codex exec` (or `codex exec resume` when a prior session exists), concurrently drains stdout/stderr without blocking, and either prints the final answer on stdout (default) or forwards compact progress lines live to stdout and writes the final answer to a sidecar file (streaming mode). There is no built-in prompt, no templates, no auto-bundling. Claude Code composes the full briefing every call — adapted to the current task, phase, and recent turns. On the first call per project, Claude's briefing establishes Codex's framing; follow-up calls resume the same Codex thread so Codex carries accumulated project knowledge. Claude reframes explicitly when the task shifts so prior framing doesn't bias later turns.
 
 Codex uses your configured model and settings from `~/.codex/config.toml`, reads the current project directly, runs commands, and does deep analysis. Claude reconciles Codex's response against its own assessment — agreements, specific disagreements, missed points — and reports the reconciled output to you. When Claude's reconciliation adds material new judgment or synthesis, it can ask Codex to audit the draft, and if that audit materially changes the answer, run one closing check on the revision. The protocol stays bounded — briefing, audit when needed, closing check when needed — rather than iterating toward agreement.
 
@@ -57,13 +57,25 @@ sequenceDiagram
 
     U->>C: /codex-opinion:codex-opinion
     C->>C: Compose adaptive briefing
-    C->>S: Pipe briefing via stdin
+    C->>S: Monitor: stream briefing via stdin
     S->>X: codex exec --json (stdin passthrough)
-    X-->>S: JSONL events
-    S->>S: Extract final message
-    S-->>C: Codex's analysis via stdout
+    loop as events arrive
+        X-->>S: JSONL event
+        S-->>C: `>> ...` compact progress line
+    end
+    S->>S: Write final answer to sidecar file
+    S-->>C: `>> final-message: <path>`
+    C->>S: Read sidecar
     C-->>U: Reconciles and reports
 ```
+
+## Live progress
+
+Codex runs can take minutes to an hour on deep reviews. By default Claude Code invokes the script through its `Monitor` tool with `CODEX_OPINION_STREAM=monitor` set, so compact progress lines (`>> tool: …`, `>> tool done: exit=0 …`, `>> agent message ready`, `>> turn done: …`) appear as notifications in the conversation while Codex is working — no more silence until completion. The final message lands in a sidecar file under `$XDG_STATE_HOME/codex-opinion/lastmsg/`; Claude reads it after Monitor completes and uses it for reconciliation.
+
+The stream is not the answer. Progress is progress. Use `>> final-message: <path>` as the handoff.
+
+For short or debugging calls, the silent foreground shape still works — pipe a briefing directly to the script and it returns the final message on stdout as it did pre-1.5.0.
 
 ## Philosophy
 
@@ -114,6 +126,8 @@ claude plugins install codex-opinion@codex-opinion       # skip if already insta
 ```
 
 `scripts/dev-link.sh` replaces the installed version's cache directory (`~/.claude/plugins/cache/codex-opinion/codex-opinion/<version>/`) with a symlink to your working tree. Symlinks inside the plugin cache resolve to their target at runtime.
+
+**Dev-loop troubleshooting.** Claude Code's `~/.claude/plugins/installed_plugins.json` is the authoritative manifest: each plugin entry names the `installPath` and `version` the harness actually loads. A symlink to a newer version number (1.5.0) is ignored unless the manifest points at it. After bumping `plugin.json`, either run `claude plugins update` to refresh the manifest, or symlink the specific version directory the manifest expects. If you see `/Users/…/cache/codex-opinion/codex-opinion/<old-version>/…` in loaded paths after your dev-link, the manifest is still pinned — update it.
 
 After the one-time restart, edits to `plugins/codex-opinion/**` are live on the next `/codex-opinion:codex-opinion` invocation. **SKILL.md caveat:** the Claude Code harness's skill-content caching behavior is not documented, so `SKILL.md` edits may still require a session restart; the script and the rest of the plugin files update live.
 
