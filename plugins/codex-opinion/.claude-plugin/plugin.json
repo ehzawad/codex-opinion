@@ -1,6 +1,6 @@
 {
   "name": "codex-opinion",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "description": "Three-way collaboration with OpenAI Codex — human, Claude, and Codex reconcile on any task.",
   "author": {"name": "ehzawad"},
   "license": "MIT",

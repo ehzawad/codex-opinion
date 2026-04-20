@@ -1,6 +1,6 @@
 ---
 name: codex-opinion
-description: Pipe your plan or diff to Codex for a second opinion. Invoke with /codex-opinion:codex-opinion.
+description: Second opinion from OpenAI Codex — you, Claude, and Codex in the loop. Invoke /codex-opinion:codex-opinion, or naturally via phrases like "ask codex," "second opinion," "another perspective," "codex weigh in," "reconcile with codex."
 ---
 
 # Codex Second Opinion
