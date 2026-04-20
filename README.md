@@ -46,7 +46,7 @@ reconcile with codex
 
 The script bookends Claude Code's stdin context with a short generic review directive, then sends the combined prompt into `codex exec` (or `codex exec resume` when a prior session exists). Pass a positional argument to replace the default directive, or `--no-default-instruction` for exact stdin passthrough. Claude Code still composes the full context every call — adapted to the current task, phase, and recent turns. On the first call per project, Claude's context establishes Codex's framing; follow-up calls resume the same Codex thread so Codex carries accumulated project knowledge. Claude reframes explicitly when the task shifts so prior framing doesn't bias later turns.
 
-Codex uses your configured model and settings from `~/.codex/config.toml`, reads the current project directly, runs commands, and does deep analysis. Claude reconciles Codex's response against its own assessment — agreements, specific disagreements, missed points — and reports the reconciled output to you. When Claude's reconciliation adds material new judgment or synthesis, it can ask Codex to audit the draft, and if that audit materially changes the answer, run one closing check on the revision. The protocol stays bounded — initial round, audit when needed, closing check when needed — rather than iterating toward agreement.
+Codex uses your configured model and settings from `~/.codex/config.toml`, reads the current project directly, runs commands, and does deep analysis. Claude reconciles Codex's response against its own assessment and reports the reconciled output to you.
 
 ```mermaid
 sequenceDiagram
@@ -64,10 +64,6 @@ sequenceDiagram
     S-->>C: Codex's analysis via stdout
     C-->>U: Reconciles and reports
 ```
-
-## Philosophy
-
-Every invocation is a three-way reconciliation: send material context (don't dump, don't summarize away specifics), make uncertainty explicit, and reconcile assumptions across Claude, Codex, and the human. The full invariants — keep the context window useful, treat unexpected state calmly, no shortcuts over correctness, no overclaiming, thoughtful over fast, surface disagreement over default agreement, and treating wrong/missing/incomplete assumptions as the origin of errors — are the baked-in floor in [`SKILL.md`](plugins/codex-opinion/skills/codex-opinion/SKILL.md).
 
 ## Session management
 
