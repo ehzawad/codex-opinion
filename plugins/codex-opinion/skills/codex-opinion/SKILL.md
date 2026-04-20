@@ -25,14 +25,16 @@ These principles hold across every invocation regardless of task. Human, Claude,
 - **No party has priority.** Human, Claude, and Codex reconcile on facts, evidence, and context — not on whose suggestion it is. Prior user decisions override stylistic defaults; direct observation overrides inferred claims.
 - **Wrong, incomplete, and missing assumptions are the origin of errors and misalignments.** Reconciliation's main job is to surface them — in Claude's briefing, Codex's reply, the user's framing, or prior memory and decisions.
 
-Include a brief marker of this philosophy in your first briefing per project so Codex's framing inherits it. Restate it if any participant drifts (sycophancy creep, hand-wavy certainty, rushed conclusions, unverified claims).
+Carry the floor through the briefing itself — comprehensive context, honest uncertainty, evidence-based reconciliation — instead of labeling every prompt with a "philosophy" header. Restate it explicitly only when starting fresh or when a participant drifts (sycophancy creep, hand-wavy certainty, rushed conclusions, unverified claims).
 
 ## Script
 
-Pure transport. Whatever you pipe to stdin is exactly what Codex sees — no default framing, no templates. Call it with your composed briefing on stdin:
+Pure transport. Whatever you pipe to stdin is exactly what Codex sees — no default framing, no templates. Call it with your composed multi-paragraph briefing on stdin:
 
 ```bash
-<your briefing> | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py
+cat <<'EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py
+<full briefing for Codex>
+EOF
 ```
 
 A Codex call takes as long as the work takes; use Bash `run_in_background: true` and wait for Claude Code's completion notification instead of sleep-polling.
@@ -41,9 +43,9 @@ First call per project establishes Codex's framing; later calls resume the same 
 
 ## Briefing and reconciliation
 
-Use this as a lens, not a form — don't mechanically fill headings; include only what's material for this moment, and omit empty parts entirely (no `N/A` padding): objective; the output Codex should produce; your current read, or that you don't have one yet; observed evidence (exact user text, errors, diffs, outputs); negative evidence (hypotheses already ruled out, and why); constraints and prior decisions (don't relitigate); where Codex should look (paths, commands, stuff, branches and diffs, artifacts, or specific evidence); the exact question; known non-goals (Codex may challenge them if they conflict with the objective).
+Brief comprehensively and tailor the briefing to the moment — use this as a lens, not a form. When unsure, include more context rather than less: undershooting rots reconciliation, and Codex can't challenge what it can't see. Include the user's exact text verbatim, not just a paraphrase; the current chat-interaction state Codex cannot see (what was decided, what is pending, what changed in recent turns); the output Codex should produce; your current read, or that you don't have one yet; observed evidence inlined when the exact text is the evidence (errors, diffs, outputs); negative evidence (hypotheses already ruled out and why); constraints and prior decisions that still bind; where Codex should look (paths, commands, stuff, branches and diffs, artifacts, or specific evidence); the exact question; known non-goals (Codex may challenge them if they conflict with the objective).
 
-When the material is in the current project, prefer pointing Codex at paths or commands over pasting bulk content — unless the exact text, error, or diff *is* the evidence. If uncommitted changes are material, inline `git diff HEAD` so Codex starts from a shared view of the working state.
+When the material is in the current project, point Codex at paths or commands for bulk content it can fetch itself. When the evidence is the exact text, error, output, or diff, inline it rather than paraphrase. For codework with uncommitted changes, default to inlining `git diff HEAD` so Codex starts from the actual working state, not stale HEAD. For mid-session interaction state Codex cannot see (recent user instructions, current plan, decisions, failed attempts, tool output you saw), inline that too.
 
 When Codex replies, reconcile rather than relay. Agreements build confidence; disagreements need verification in code, docs, or commands. Fold in points Codex surfaced that you missed; correct assumptions Codex made that you know are wrong (e.g., from prior user decisions captured in memory) rather than silently accept them; surface points where the user needs to decide between your take and Codex's, don't paper over. Hand the user the reconciled output, not a summary from one of the three.
 
