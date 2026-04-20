@@ -1,6 +1,6 @@
 {
   "name": "codex-opinion",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Three-way collaboration with OpenAI Codex for software, AI/ML, infrastructure, and research-engineering work.",
   "author": {"name": "ehzawad"},
   "license": "MIT",

@@ -55,6 +55,8 @@ EOF
 
 A Codex call takes as long as the work takes; use Bash `run_in_background: true` and wait for Claude Code's completion notification instead of sleep-polling.
 
+Direct-CLI context-building patterns (git diff, untracked files with binary/size guards, passthrough mode) are in [`reference.md`](reference.md).
+
 First call per project establishes Codex's framing; later calls resume the same thread, so Codex keeps accumulated project knowledge. **Reframe explicitly when the task shifts** — prior framing biases later answers if left unchecked. If the thread has drifted beyond what a reframe can steer, delete the state file (details in Session state). For per-session isolation instead of project-wide continuity, set `CODEX_OPINION_SESSION_KEY` before launching Claude Code — see Session state.
 
 ## Context and reconciliation
