@@ -1,6 +1,6 @@
 # codex-opinion
 
-A Claude Code plugin that brings OpenAI's Codex CLI into your work as a distinct second model that adapts to whatever you're doing. You, Claude, and Codex in the loop. Install once; invoke from any Claude Code project.
+A Claude Code plugin that brings OpenAI's Codex CLI into software, CS, AI/ML, infrastructure, and research-engineering work as a distinct second model. You, Claude, and Codex in the loop. Install once; invoke from any Claude Code project.
 
 ## Prerequisites
 
@@ -44,7 +44,7 @@ reconcile with codex
 
 ## How it works
 
-The script is a pure transport: it pipes whatever Claude Code writes to stdin straight into `codex exec` (or `codex exec resume` when a prior session exists). There is no built-in prompt, no templates, no auto-bundling. Claude Code composes the full context every call — adapted to the current task, phase, and recent turns. On the first call per project, Claude's context establishes Codex's framing; follow-up calls resume the same Codex thread so Codex carries accumulated project knowledge. Claude reframes explicitly when the task shifts so prior framing doesn't bias later turns.
+The script bookends Claude Code's stdin context with a short generic review directive, then sends the combined prompt into `codex exec` (or `codex exec resume` when a prior session exists). Pass a positional argument to replace the default directive, or `--no-default-instruction` for exact stdin passthrough. Claude Code still composes the full context every call — adapted to the current task, phase, and recent turns. On the first call per project, Claude's context establishes Codex's framing; follow-up calls resume the same Codex thread so Codex carries accumulated project knowledge. Claude reframes explicitly when the task shifts so prior framing doesn't bias later turns.
 
 Codex uses your configured model and settings from `~/.codex/config.toml`, reads the current project directly, runs commands, and does deep analysis. Claude reconciles Codex's response against its own assessment — agreements, specific disagreements, missed points — and reports the reconciled output to you. When Claude's reconciliation adds material new judgment or synthesis, it can ask Codex to audit the draft, and if that audit materially changes the answer, run one closing check on the revision. The protocol stays bounded — initial round, audit when needed, closing check when needed — rather than iterating toward agreement.
 
@@ -58,7 +58,7 @@ sequenceDiagram
     U->>C: /codex-opinion:codex-opinion
     C->>C: Compose adaptive context
     C->>S: Pipe context via stdin
-    S->>X: codex exec --json (stdin passthrough)
+    S->>X: codex exec --json (bookended context)
     X-->>S: JSONL events
     S->>S: Extract final message
     S-->>C: Codex's analysis via stdout

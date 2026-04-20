@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """Route a prompt to Codex CLI.
 
-Pure transport: whatever is piped in on stdin is sent verbatim to
-`codex exec` (or `codex exec resume` when a prior session exists for
-this project). The caller — typically Claude Code via the skill — is
-responsible for constructing a complete, self-framed prompt.
+Bookends the stdin body with a short review-directive instruction, then
+sends the combined prompt to `codex exec` (or `codex exec resume` when a
+prior session exists for this project). The stdin body passes through
+verbatim between the instruction copies, so the caller — typically
+Claude Code via the skill — composes the full task context on stdin
+while the instruction frames Codex as a thorough second opinion.
 
-An optional positional argument is prepended to the stdin body with a
-blank-line separator, as a convenience for direct CLI use. Most Claude
-Code invocations should leave it empty and bake any framing into stdin.
+An optional positional argument overrides DEFAULT_INSTRUCTION. Pass
+--no-default-instruction for exact stdin passthrough with no wrapper.
 
 Set CODEX_OPINION_SESSION_KEY in the environment to isolate a session's
 Codex thread from the project-wide thread. Unset or empty falls back to
 the default one-thread-per-project behavior.
 
 Usage:
-    echo "<full prompt with framing>" | python3 ask_codex.py
-    echo "<context>" | python3 ask_codex.py "Optional prefix line"
+    echo "<context>" | python3 ask_codex.py
+    echo "<context>" | python3 ask_codex.py "Custom instruction to override default"
+    echo "<context>" | python3 ask_codex.py --no-default-instruction
 """
 
 import hashlib
@@ -33,6 +35,15 @@ STATE_DIR = os.path.join(
     os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
     "codex-opinion",
 )
+
+DEFAULT_INSTRUCTION = (
+    "Give a thorough second opinion on the context below. "
+    "Surface wrong, missing, or incomplete assumptions, trade-offs, and risks. "
+    "Prioritize actionable findings; if nothing material stands out, say so clearly. "
+    "Thoroughness beats speed."
+)
+
+NO_DEFAULT_FLAG = "--no-default-instruction"
 
 # Lowercased stderr substrings from `codex exec resume` that indicate the
 # stored session can no longer be resumed (stale/expired/missing). On match
@@ -272,13 +283,38 @@ def run_codex(prompt):
     return msg
 
 
+def _instruction_from_args(args):
+    """Return custom/default instruction, or empty string for passthrough mode."""
+    no_default = False
+    parts = []
+    for arg in args:
+        if arg == NO_DEFAULT_FLAG:
+            no_default = True
+        else:
+            parts.append(arg)
+    custom = " ".join(parts).strip()
+    if custom:
+        return custom
+    if no_default:
+        return ""
+    return DEFAULT_INSTRUCTION
+
+
+def compose_prompt(stdin_content, args):
+    """Bookend stdin with the active instruction unless passthrough is requested."""
+    instruction = _instruction_from_args(args)
+    if not instruction:
+        return stdin_content
+    return f"{instruction}\n\n{stdin_content}\n\n{instruction}"
+
+
 def main():
     if not shutil.which("codex"):
         print("Codex CLI not found — install with: npm i -g @openai/codex", file=sys.stderr)
         sys.exit(1)
 
     if sys.stdin.isatty():
-        print("No input piped. Usage: echo 'prompt' | python3 ask_codex.py", file=sys.stderr)
+        print("No input piped. Usage: echo 'context' | python3 ask_codex.py", file=sys.stderr)
         sys.exit(1)
 
     stdin_content = sys.stdin.read()
@@ -286,10 +322,7 @@ def main():
         print("Empty input — pipe a complete prompt instead.", file=sys.stderr)
         sys.exit(1)
 
-    # Optional positional prefix — prepended to stdin with a blank-line
-    # separator. Usually empty; Claude Code bakes framing into stdin.
-    prefix = " ".join(sys.argv[1:]).strip()
-    prompt = f"{prefix}\n\n{stdin_content}" if prefix else stdin_content
+    prompt = compose_prompt(stdin_content, sys.argv[1:])
 
     print(run_codex(prompt))
 

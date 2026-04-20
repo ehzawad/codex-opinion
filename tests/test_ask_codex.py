@@ -1,7 +1,8 @@
 """Unit tests for ask_codex.py.
 
-Runs without the Codex CLI installed. Covers the pure helpers:
-key computation, state file I/O, JSONL parsing, stale-resume detection.
+Runs without the Codex CLI installed. Covers helper behavior:
+key computation, state file I/O, JSONL parsing, stale-resume detection,
+prompt composition, and command shape.
 
 Lives outside the plugin subtree so end-user installs don't bundle it.
 Run from repo root:
@@ -328,6 +329,49 @@ class ProjectRootCacheTests(unittest.TestCase):
             for _ in range(5):
                 ask_codex._project_root()
         self.assertEqual(calls["count"], 1, "expected exactly one git rev-parse")
+
+
+class DefaultInstructionTests(unittest.TestCase):
+    """DEFAULT_INSTRUCTION is a baked review directive that bookends stdin
+    when no positional arg is passed. Positional arg overrides it."""
+
+    def test_default_instruction_exists_and_is_nonempty(self):
+        self.assertTrue(hasattr(ask_codex, "DEFAULT_INSTRUCTION"))
+        self.assertIsInstance(ask_codex.DEFAULT_INSTRUCTION, str)
+        self.assertTrue(len(ask_codex.DEFAULT_INSTRUCTION.strip()) > 0)
+
+    def test_default_instruction_is_task_agnostic(self):
+        """Guard against re-introducing code-review-only biases."""
+        lowered = ask_codex.DEFAULT_INSTRUCTION.lower()
+        for banned in ("bug", "regression", "architect", "developer"):
+            self.assertNotIn(
+                banned,
+                lowered,
+                f"DEFAULT_INSTRUCTION should stay task-agnostic — found '{banned}'",
+            )
+
+    def test_default_instruction_bookends_stdin(self):
+        prompt = ask_codex.compose_prompt("BODY", [])
+        self.assertEqual(
+            prompt,
+            f"{ask_codex.DEFAULT_INSTRUCTION}\n\nBODY\n\n{ask_codex.DEFAULT_INSTRUCTION}",
+        )
+
+    def test_positional_instruction_overrides_default_and_bookends(self):
+        prompt = ask_codex.compose_prompt("BODY", ["custom", "instruction"])
+        self.assertEqual(prompt, "custom instruction\n\nBODY\n\ncustom instruction")
+        self.assertNotIn(ask_codex.DEFAULT_INSTRUCTION, prompt)
+
+    def test_no_default_instruction_returns_exact_stdin(self):
+        body = "BODY\nwith\nnewlines"
+        self.assertEqual(
+            ask_codex.compose_prompt(body, [ask_codex.NO_DEFAULT_FLAG]),
+            body,
+        )
+
+    def test_no_default_instruction_with_custom_uses_custom(self):
+        prompt = ask_codex.compose_prompt("BODY", [ask_codex.NO_DEFAULT_FLAG, "custom"])
+        self.assertEqual(prompt, "custom\n\nBODY\n\ncustom")
 
 
 if __name__ == "__main__":

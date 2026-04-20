@@ -1,7 +1,7 @@
 {
   "name": "codex-opinion",
-  "version": "2.0.3",
-  "description": "Three-way collaboration with OpenAI Codex — human, Claude, and Codex reconcile on any task.",
+  "version": "2.1.0",
+  "description": "Three-way collaboration with OpenAI Codex for software, AI/ML, infrastructure, and research-engineering work.",
   "author": {"name": "ehzawad"},
   "license": "MIT",
   "keywords": ["codex", "openai", "collaboration", "reconciliation", "second-opinion"]

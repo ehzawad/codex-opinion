@@ -1,12 +1,12 @@
 ---
 name: codex-opinion
-description: Three-way collaboration with OpenAI Codex (human + Claude + Codex) that adapts in the moment to whatever you're doing. Claude reconciles Codex's take with the work at hand. Invoke /codex-opinion:codex-opinion, or naturally via phrases like "ask codex," "second opinion," "another perspective," "codex weigh in," "reconcile with codex."
+description: Three-way collaboration with OpenAI Codex (human + Claude + Codex) for software, CS, AI/ML, infrastructure, and research-engineering work. Claude reconciles Codex's take with the work at hand. Invoke /codex-opinion:codex-opinion, or naturally via phrases like "ask codex," "second opinion," "another perspective," "codex weigh in," "reconcile with codex."
 argument-hint: [usually empty — compose the context into stdin]
 ---
 
 # Three-way collaboration with Codex
 
-Codex runs in its own process with full filesystem access. Its working root is the current project — resolved at each invocation from the cwd's git root (or the cwd itself if not in a repo), which is whatever project the user is working in right now. This plugin is not tied to any specific codebase; it works inside any Claude Code project.
+Codex runs in its own process with full filesystem access. Its working root is the current project — resolved at each invocation from the cwd's git root (or the cwd itself if not in a repo), which is whatever technical project the user is working in right now. This plugin is not tied to any specific codebase; it works inside any Claude Code project.
 
 Each invocation is a three-way collaboration — human, Claude, Codex. Your job is to give Codex the current context, get its take, and reconcile — not forward and relay.
 
@@ -29,7 +29,7 @@ Carry the floor through the context itself — comprehensive context, honest unc
 
 ## Script
 
-Pure transport. Whatever you pipe to stdin is exactly what Codex sees — no default framing, no templates. Call it with your composed multi-paragraph context on stdin:
+The script bookends the stdin body with a short review-directive instruction (`DEFAULT_INSTRUCTION` in `ask_codex.py`), then pipes the combined prompt to `codex exec`. The stdin body passes through verbatim between the instruction copies — Codex sees your full composed context. Call it with your context on stdin:
 
 ```bash
 cat <<'EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py
@@ -37,15 +37,58 @@ cat <<'EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_cod
 EOF
 ```
 
+Override the default instruction by passing a positional argument, which replaces `DEFAULT_INSTRUCTION` and is also bookended:
+
+```bash
+cat <<'EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py "custom directive for this task"
+<full context for Codex>
+EOF
+```
+
+For exact stdin passthrough with no default or custom wrapper:
+
+```bash
+cat <<'EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py --no-default-instruction
+<full context for Codex>
+EOF
+```
+
 A Codex call takes as long as the work takes; use Bash `run_in_background: true` and wait for Claude Code's completion notification instead of sleep-polling.
 
-First call per project establishes Codex's framing; later calls resume the same thread, so Codex keeps accumulated project knowledge. **Reframe explicitly when the task shifts** — prior framing biases later answers if left unchecked. If the thread has drifted beyond what a reframe can steer, delete the state file (details in Session state).
+First call per project establishes Codex's framing; later calls resume the same thread, so Codex keeps accumulated project knowledge. **Reframe explicitly when the task shifts** — prior framing biases later answers if left unchecked. If the thread has drifted beyond what a reframe can steer, delete the state file (details in Session state). For per-session isolation instead of project-wide continuity, set `CODEX_OPINION_SESSION_KEY` before launching Claude Code — see Session state.
 
 ## Context and reconciliation
 
 Provide comprehensive context and tailor it to the moment — use this as a lens, not a form. When unsure, include more context rather than less: undershooting rots reconciliation, and Codex can't challenge what it can't see. Include the user's exact text verbatim, not just a paraphrase; the current chat-interaction state Codex cannot see (what was decided, what is pending, what changed in recent turns); the output Codex should produce; your current read, or that you don't have one yet; observed evidence inlined when the exact text is the evidence (errors, diffs, outputs); negative evidence (hypotheses already ruled out and why); constraints and prior decisions that still bind; where Codex should look (paths, commands, stuff, branches and diffs, artifacts, or specific evidence); the exact question; known non-goals (Codex may challenge them if they conflict with the objective).
 
 When the material is in the current project, point Codex at paths or commands for bulk content it can fetch itself. When the evidence is the exact text, error, output, or diff, inline it rather than paraphrase. For codework with uncommitted changes, default to inlining `git diff HEAD` so Codex starts from the actual working state, not stale HEAD. For mid-session interaction state Codex cannot see (recent user instructions, current plan, decisions, failed attempts, tool output you saw), inline that too.
+
+For review-shaped asks (code review, design review, plan review — anything framed as "check this"), explicitly include the artifact being reviewed, what motivated the review (observed failures, concerns, goals), and the review criteria Codex should apply. Weak task framing produces weak second opinions.
+
+### Context-building templates
+
+Pick a template when a user's task intent clearly matches one — otherwise compose context without a template. Templates are starting shapes, not forms; adapt, merge, delete, or reorder fields so Codex gets the context this moment needs.
+
+1. **General technical review:** user request; artifact or decision under review; why review is needed; known constraints; evidence; exact question for Codex.
+2. **LLM application:** user goal; prompt/model/tool schema; retrieval or memory setup; traces that failed or succeeded; evaluation criteria; safety constraints.
+3. **Agentic system:** loop design; tool contracts; state/memory model; stop conditions; logs or traces; failure mode to inspect.
+4. **ML training pipeline:** dataset source and splits; target metric; model/config; training logs; validation behavior; suspected bottleneck or risk.
+5. **Deep learning model:** architecture or paper reference; tensor shapes; loss/objective; training/inference constraints; benchmarks; code paths to inspect.
+6. **Inference or serving:** model/version; endpoint or batch path; latency/cost targets; batching/caching behavior; observed logs; rollout constraints.
+7. **MLOps lifecycle:** data/versioning; eval gates; registry and deployment path; monitoring signals; rollback plan; drift or retraining concern.
+8. **Data engineering:** sources and schemas; transformation contract; orchestration job; data quality checks; sample failures; lineage or backfill constraints.
+9. **Frontend UI:** route/component; intended user behavior; screenshots or browser errors; state/data flow; accessibility constraints; diff or files.
+10. **Frontend state/data:** store/hooks/query lifecycle; cache invalidation; API contracts; race conditions; reproduction steps; files to inspect.
+11. **Backend API:** endpoint; auth/permissions; request/response examples; database or service dependencies; logs/tests; compatibility constraints.
+12. **Database/schema:** current schema; migration diff; data invariants; query or index behavior; rollback needs; production safety concerns.
+13. **Unit tests:** target function/module; expected behavior; current tests; missing cases; failures or edge cases; desired assertion level.
+14. **Integration or end-to-end tests:** user flow; services involved; fixtures/env; failure output; flake/race clues; coverage gap.
+15. **QA or regression:** release scope; changed behavior; acceptance criteria; known risks; manual/automated evidence; blocker threshold.
+16. **Performance or load:** workload shape; baseline and target metrics; profiling output; bottleneck hypothesis; infra limits; acceptable trade-offs.
+17. **Deployment or infrastructure:** environment; config and secrets model; rollout steps; health checks; logs/alerts; rollback path.
+18. **DevSecOps/security:** threat model; auth boundaries; secrets/dependencies/IaC; scan output; blast radius; required mitigations.
+19. **Research paper review:** paper/excerpt/link; claim to evaluate; assumptions; relevance to current project; replication or implementation questions.
+20. **Paper-to-code implementation:** target result; algorithm details; repo/files; deviations from paper; tests/evals; performance or correctness criteria.
 
 When Codex replies, reconcile rather than relay. Agreements build confidence; disagreements need verification in code, docs, or commands. Fold in points Codex surfaced that you missed; correct assumptions Codex made that you know are wrong (e.g., from prior user decisions captured in memory) rather than silently accept them; surface points where the user needs to decide between your take and Codex's, don't paper over. Hand the user the reconciled output, not a summary from one of the three.
 
