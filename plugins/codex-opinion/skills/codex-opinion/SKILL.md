@@ -9,7 +9,7 @@ Get a second opinion from OpenAI Codex on your current work. Codex uses your con
 
 ## How to call
 
-Call with your context on stdin. Codex can take several minutes; use Bash `run_in_background: true` and wait for Claude Code's completion notification instead of sleep-polling.
+Call with your context on stdin. A Codex call takes as long as the work takes; use Bash `run_in_background: true` and wait for Claude Code's completion notification instead of sleep-polling.
 
 ```bash
 echo "<gathered context>" | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py
@@ -61,3 +61,5 @@ Set `CODEX_OPINION_SESSION_KEY` before launching Claude Code to isolate a sessio
 ## After Codex responds
 
 Tell the user what Codex found.
+
+Multi-turn is available when a reply warrants follow-up (Claude → Codex → Claude → Codex → reconcile); default is single-turn.
