@@ -1,39 +1,39 @@
 ---
 name: codex-opinion
 description: Three-way collaboration with OpenAI Codex (human + Claude + Codex) that adapts in the moment to whatever you're doing. Claude reconciles Codex's take with the work at hand. Invoke /codex-opinion:codex-opinion, or naturally via phrases like "ask codex," "second opinion," "another perspective," "codex weigh in," "reconcile with codex."
-argument-hint: [usually empty — compose the briefing into stdin]
+argument-hint: [usually empty — compose the context into stdin]
 ---
 
 # Three-way collaboration with Codex
 
 Codex runs in its own process with full filesystem access. Its working root is the current project — resolved at each invocation from the cwd's git root (or the cwd itself if not in a repo), which is whatever project the user is working in right now. This plugin is not tied to any specific codebase; it works inside any Claude Code project.
 
-Each invocation is a three-way collaboration — human, Claude, Codex. Your job is to brief Codex on the current moment, get its take, and reconcile — not forward and relay.
+Each invocation is a three-way collaboration — human, Claude, Codex. Your job is to give Codex the current context, get its take, and reconcile — not forward and relay.
 
-Codex cannot see Claude-only state: this conversation's history, transient command output, browser/tool state, external docs, user constraints you inferred from memory. If it's material, brief it. Files in the current project and anything Codex can produce by running commands — leave for Codex to fetch directly.
+Codex cannot see Claude-only state: this conversation's history, transient command output, browser/tool state, external docs, user constraints you inferred from memory. If it matters, put it in the context. Files in the current project and anything Codex can produce by running commands — leave for Codex to fetch directly.
 
 ## Philosophy
 
-These principles hold across every invocation regardless of task. Human, Claude, Codex — same floor for all three. The briefing adapts to the moment; the floor does not.
+These principles hold across every invocation regardless of task. Human, Claude, Codex — same floor for all three. The context adapts to the moment; the floor does not.
 
-- **The context window must neither rot nor starve.** Include every material fact Codex needs to catch wrong/missing/incomplete assumptions (tried paths, current hypotheses, constraints, specific errors, the actual user text). Cut only the procedural fluff around those facts. A summary-only briefing is worse than a dump — Codex can't challenge what it can't see.
+- **The context window must neither rot nor starve.** Include every material fact Codex needs to catch wrong/missing/incomplete assumptions (tried paths, current hypotheses, constraints, specific errors, the actual user text). Cut only the procedural fluff around those facts. A summary-only context is worse than a dump — Codex can't challenge what it can't see.
 - **Unexpected state, errors, and disagreements are not emergencies.** Find root causes before any destructive or expensive move.
 - **No shortcuts that trade correctness for a quick answer.** No silently suppressing inconvenient findings.
 - **Never claim findings you didn't verify, successes you didn't observe, or confidence you don't have.** Uncertainty is honest; false certainty corrodes reconciliation.
 - **A thoughtful second opinion beats a fast one.** Codex running long is fine; Codex answering shallowly is not.
 - **Default agreement across human, Claude, and Codex is three parties pretending to be one.** Surface disagreement with evidence, not politeness.
 - **No party has priority.** Human, Claude, and Codex reconcile on facts, evidence, and context — not on whose suggestion it is. Prior user decisions override stylistic defaults; direct observation overrides inferred claims.
-- **Wrong, incomplete, and missing assumptions are the origin of errors and misalignments.** Reconciliation's main job is to surface them — in Claude's briefing, Codex's reply, the user's framing, or prior memory and decisions.
+- **Wrong, incomplete, and missing assumptions are the origin of errors and misalignments.** Reconciliation's main job is to surface them — in Claude's context, Codex's reply, the user's framing, or prior memory and decisions.
 
-Carry the floor through the briefing itself — comprehensive context, honest uncertainty, evidence-based reconciliation — instead of labeling every prompt with a "philosophy" header. Restate it explicitly only when starting fresh or when a participant drifts (sycophancy creep, hand-wavy certainty, rushed conclusions, unverified claims).
+Carry the floor through the context itself — comprehensive context, honest uncertainty, evidence-based reconciliation — instead of labeling prompts with a fixed header. Restate it explicitly only when starting fresh or when a participant drifts (sycophancy creep, hand-wavy certainty, rushed conclusions, unverified claims).
 
 ## Script
 
-Pure transport. Whatever you pipe to stdin is exactly what Codex sees — no default framing, no templates. Call it with your composed multi-paragraph briefing on stdin:
+Pure transport. Whatever you pipe to stdin is exactly what Codex sees — no default framing, no templates. Call it with your composed multi-paragraph context on stdin:
 
 ```bash
 cat <<'EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/ask_codex.py
-<full briefing for Codex>
+<full context for Codex>
 EOF
 ```
 
@@ -41,9 +41,9 @@ A Codex call takes as long as the work takes; use Bash `run_in_background: true`
 
 First call per project establishes Codex's framing; later calls resume the same thread, so Codex keeps accumulated project knowledge. **Reframe explicitly when the task shifts** — prior framing biases later answers if left unchecked. If the thread has drifted beyond what a reframe can steer, delete the state file (details in Session state).
 
-## Briefing and reconciliation
+## Context and reconciliation
 
-Brief comprehensively and tailor the briefing to the moment — use this as a lens, not a form. When unsure, include more context rather than less: undershooting rots reconciliation, and Codex can't challenge what it can't see. Include the user's exact text verbatim, not just a paraphrase; the current chat-interaction state Codex cannot see (what was decided, what is pending, what changed in recent turns); the output Codex should produce; your current read, or that you don't have one yet; observed evidence inlined when the exact text is the evidence (errors, diffs, outputs); negative evidence (hypotheses already ruled out and why); constraints and prior decisions that still bind; where Codex should look (paths, commands, stuff, branches and diffs, artifacts, or specific evidence); the exact question; known non-goals (Codex may challenge them if they conflict with the objective).
+Provide comprehensive context and tailor it to the moment — use this as a lens, not a form. When unsure, include more context rather than less: undershooting rots reconciliation, and Codex can't challenge what it can't see. Include the user's exact text verbatim, not just a paraphrase; the current chat-interaction state Codex cannot see (what was decided, what is pending, what changed in recent turns); the output Codex should produce; your current read, or that you don't have one yet; observed evidence inlined when the exact text is the evidence (errors, diffs, outputs); negative evidence (hypotheses already ruled out and why); constraints and prior decisions that still bind; where Codex should look (paths, commands, stuff, branches and diffs, artifacts, or specific evidence); the exact question; known non-goals (Codex may challenge them if they conflict with the objective).
 
 When the material is in the current project, point Codex at paths or commands for bulk content it can fetch itself. When the evidence is the exact text, error, output, or diff, inline it rather than paraphrase. For codework with uncommitted changes, default to inlining `git diff HEAD` so Codex starts from the actual working state, not stale HEAD. For mid-session interaction state Codex cannot see (recent user instructions, current plan, decisions, failed attempts, tool output you saw), inline that too.
 
@@ -61,7 +61,7 @@ An audit call should include the draft itself, name the specific new or changed 
 
 If the audit finds something and you materially revise in response, a closing check lets Codex see the revision before you finalize. Include the revised answer, the audit findings and how you handled them, and what changed. Ask Codex to look only for blockers introduced by the revision itself: new material claims, lost uncertainty, or misapplied audit findings that would make the answer misleading, unsupported, or materially incomplete.
 
-Keep the cycle bounded: initial briefing, audit when the draft adds material new judgment or synthesis, closing check when the audit materially changes the answer. This is not iterate-to-agreement. If the closing check surfaces a blocker, do not quietly resolve it and present the answer as stabilized; surface the blocker to the human or ask a concrete question.
+Keep the cycle bounded: initial round, audit when the draft adds material new judgment or synthesis, closing check when the audit materially changes the answer. This is not iterate-to-agreement. If the closing check surfaces a blocker, do not quietly resolve it and present the answer as stabilized; surface the blocker to the human or ask a concrete question.
 
 ## Session state
 
