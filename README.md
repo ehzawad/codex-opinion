@@ -1,6 +1,6 @@
 # codex-opinion
 
-A Claude Code plugin that brings OpenAI's Codex CLI into software, CS, AI/ML, infrastructure, and research-engineering work as a distinct second model. You, Claude, and Codex in the loop. Install once; invoke from any Claude Code project.
+A Claude Code plugin that brings OpenAI's Codex CLI into your work as a distinct second model. You, Claude, and Codex in the loop. Install once; invoke from any Claude Code project.
 
 ## Prerequisites
 

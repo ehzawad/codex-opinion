@@ -1,12 +1,12 @@
 ---
 name: codex-opinion
-description: Three-way collaboration with OpenAI Codex (human + Claude + Codex) for software, CS, AI/ML, infrastructure, and research-engineering work. Claude reconciles Codex's take with the work at hand. Invoke /codex-opinion:codex-opinion, or naturally via phrases like "ask codex," "second opinion," "another perspective," "codex weigh in," "reconcile with codex."
+description: Three-way collaboration with OpenAI Codex (human + Claude + Codex). Claude reconciles Codex's take with the work at hand. Invoke /codex-opinion:codex-opinion, or naturally via phrases like "ask codex," "second opinion," "another perspective," "codex weigh in," "reconcile with codex."
 argument-hint: [usually empty — compose the context into stdin]
 ---
 
 # Three-way collaboration with Codex
 
-Codex runs in its own process with full filesystem access. Its working root is the current project — resolved at each invocation from the cwd's git root (or the cwd itself if not in a repo), which is whatever technical project the user is working in right now. This plugin is not tied to any specific codebase; it works inside any Claude Code project.
+Codex runs in its own process with full filesystem access. Its working root is the current project — resolved at each invocation from the cwd's git root (or the cwd itself if not in a repo), which is whatever project the user is working in right now. This plugin is not tied to any specific codebase; it works inside any Claude Code project.
 
 Each invocation is a three-way collaboration — human, Claude, Codex. Your job is to give Codex the current context, get its take, and reconcile — not forward and relay.
 
