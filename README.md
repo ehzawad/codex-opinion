@@ -12,6 +12,7 @@ Both must be logged in and working in your terminal before using this plugin.
 ## Install
 
 ```bash
+claude plugins marketplace update
 claude plugins marketplace add ehzawad/codex-opinion
 claude plugins install codex-opinion@codex-opinion
 ```
