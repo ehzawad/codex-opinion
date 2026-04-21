@@ -54,12 +54,12 @@ echo "<context>" | python3 ${CLAUDE_PLUGIN_ROOT}/skills/codex-opinion/scripts/as
 
 ## Session continuity
 
-One Codex session per project, persisted across Claude Code sessions. Follow-up calls resume the prior Codex thread so it keeps its accumulated codebase knowledge. If the session has expired server-side, the script logs a notice and starts fresh.
+One Codex session per project, persisted across Claude Code sessions. Follow-up calls resume the prior Codex thread so it keeps its accumulated codebase knowledge. Reframe when the task shifts so prior framing doesn't bias later turns. If the session has expired server-side, the script logs a notice and starts fresh.
 
 Set `CODEX_OPINION_SESSION_KEY` before launching Claude Code to isolate a session from the project-wide thread.
 
 ## After Codex responds
 
-Tell the user what Codex found.
+Reconcile Codex's findings with your own read, then tell the user what changed, what you accept, what you challenge, and what remains uncertain.
 
 Multi-turn is available when a reply warrants follow-up (Claude → Codex → Claude → Codex → reconcile); default is single-turn.

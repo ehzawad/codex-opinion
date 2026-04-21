@@ -66,11 +66,6 @@ class SyncLiveTest(unittest.TestCase):
             os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
             "codex-opinion",
         )
-        state_files = [
-            os.path.join(state_dir, f)
-            for f in os.listdir(state_dir)
-            if f.endswith(".json") and session_key[:8] in f  # sloppy match via project hash + session_key hash
-        ] if os.path.isdir(state_dir) else []
         # Find the file by session_key stored inside rather than filename.
         matched = None
         for f in os.listdir(state_dir) if os.path.isdir(state_dir) else []:
